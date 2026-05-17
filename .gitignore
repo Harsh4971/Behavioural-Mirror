@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Database
+*.db
+
+# Node
+node_modules/
+dist/
+
+# Conda/pip
+venv/
+
+# Mac
+.DS_Store
+
+# Temporary audio files
+/tmp/behavioral_mirror/

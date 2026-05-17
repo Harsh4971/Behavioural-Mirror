@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+python-multipart
+anthropic
+sqlalchemy
+pydantic
+python-dotenv
+pydub
+librosa
+numpy
+scipy
+openai-whisper
+pyannote.audio
+whisperx
