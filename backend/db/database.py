@@ -19,6 +19,7 @@ class Session(Base):
     id = Column(String, primary_key=True)
     user_id = Column(String, index=True)
     context = Column(String)
+    filename = Column(String, default="recording")
     signals_json = Column(Text)
     insights_json = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)

@@ -40,11 +40,12 @@ export default function UploadView({ onResults }) {
       form.append("context", context)
       form.append("num_speakers", numSpeakers)
       form.append("user_id", "default_user")
+      form.append("filename", file.name)
 
       const { data } = await axios.post(
         "http://localhost:8000/api/analyze",
         form,
-        { headers: { "Content-Type": "multipart/form-data" }, timeout: 300000 }
+        { headers: { "Content-Type": "multipart/form-data" }, timeout: 600000 }
       )
 
       clearInterval(interval)

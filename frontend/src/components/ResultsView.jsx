@@ -2,7 +2,8 @@ import { useState } from "react"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 
 export default function ResultsView({ results, onBack }) {
-  const { signals, insights } = results
+  const { signals, insights, filename } = results
+  const displayName = filename || null
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60)
@@ -21,9 +22,36 @@ export default function ResultsView({ results, onBack }) {
         ← Back
       </button>
 
-      {/* Summary */}
+      {/* Filename */}
+      {displayName && (
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 12,
+          display: "flex", alignItems: "center", gap: 6 }}>
+          <span>📁</span>
+          <span>{displayName}</span>
+        </div>
+      )}
+
+      {/* Conversation Summary */}
+      {insights.conversation_summary && (
+        <div style={{ background: "#f0f7ff", borderRadius: 12,
+          padding: 20, marginBottom: 16, borderLeft: "4px solid #3b82f6" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8",
+            marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Conversation Summary
+          </div>
+          <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0, color: "#1e3a5f" }}>
+            {insights.conversation_summary}
+          </p>
+        </div>
+      )}
+
+      {/* Pattern Summary */}
       <div style={{ background: "#f8f9fa", borderRadius: 12,
         padding: 20, marginBottom: 24, borderLeft: "4px solid #111" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#555",
+          marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Communication Pattern
+        </div>
         <p style={{ fontSize: 15, lineHeight: 1.7, margin: 0, color: "#333" }}>
           {insights.summary_sentence}
         </p>

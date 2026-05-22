@@ -115,21 +115,37 @@ class SignalExtractor:
         }
 
     def _compute_interruptions(self, user_segs, other_segs) -> dict:
+        """
+        Detect interruptions via rapid turn switches.
+        An interruption = speaker changes within < 0.5s of previous speaker
+        AND previous speaker's turn was longer than 2s (was mid-thought).
+        """
+        all_turns = sorted(
+            [{"speaker": self.user_speaker, "start": s["start"], "end": s["end"]} for s in user_segs] +
+            [{"speaker": self.other_speaker, "start": s["start"], "end": s["end"]} for s in other_segs if self.other_speaker],
+            key=lambda x: x["start"]
+        )
+    
         user_interrupts_other = 0
         other_interrupts_user = 0
-
-        for u in user_segs:
-            for o in other_segs:
-                if o["start"] < u["start"] < o["end"]:
-                    if o["end"] - u["start"] > 0.3:
-                        user_interrupts_other += 1
-
-        for o in other_segs:
-            for u in user_segs:
-                if u["start"] < o["start"] < u["end"]:
-                    if u["end"] - o["start"] > 0.3:
-                        other_interrupts_user += 1
-
+    
+        for i in range(1, len(all_turns)):
+            prev = all_turns[i - 1]
+            curr = all_turns[i]
+    
+            if prev["speaker"] == curr["speaker"]:
+                continue
+            
+            gap = curr["start"] - prev["end"]
+            prev_duration = prev["end"] - prev["start"]
+    
+            # Interruption: gap < 0.3s AND previous turn was substantial (> 1.5s)
+            if gap < 0.3 and prev_duration > 1.5:
+                if curr["speaker"] == self.user_speaker:
+                    user_interrupts_other += 1
+                else:
+                    other_interrupts_user += 1
+    
         return {
             "user_interrupted_other": user_interrupts_other,
             "user_was_interrupted": other_interrupts_user

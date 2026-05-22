@@ -27,7 +27,7 @@ UPLOAD_DIR = "/tmp/behavioral_mirror"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 print("Loading models... this may take a minute on first run.")
-transcriber = Transcriber(model_size="base")
+transcriber = Transcriber(model_size="small")
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
 print("All models loaded. Server ready.")
@@ -44,7 +44,8 @@ async def analyze_session(
     context: str = Form("casual"),
     user_speaker: str = Form("SPEAKER_00"),
     num_speakers: int = Form(2),
-    user_id: str = Form("default_user")
+    user_id: str = Form("default_user"),
+    filename: str = Form("recording")
 ):
     session_id = str(uuid.uuid4())
     audio_path = f"{UPLOAD_DIR}/{session_id}.wav"
@@ -91,10 +92,15 @@ async def analyze_session(
 
         # Step 6: Generate insights
         print(f"[{session_id}] Generating insights...")
-        insights = insight_gen.generate(signals, context, baseline)
+        # Build transcript text for summary
+        transcript_text = " ".join([
+            f"{s.get('speaker', 'UNKNOWN')}: {s.get('text', '')}"
+            for s in merged[:60]  # First 60 segments to stay within token limits
+        ])
+        insights = insight_gen.generate(signals, context, baseline, transcript_text)
 
         # Step 7: Save session
-        save_session(db, session_id, user_id, signals, insights, context)
+        save_session(db, session_id, user_id, signals, insights, context, filename)
         db.close()
 
         # Delete audio immediately after processing
@@ -104,7 +110,8 @@ async def analyze_session(
         return {
             "session_id": session_id,
             "signals": signals,
-            "insights": insights
+            "insights": insights,
+            "filename": filename
         }
 
     except Exception as e:
@@ -126,6 +133,7 @@ def get_sessions(user_id: str):
         {
             "session_id": s.id,
             "context": s.context,
+            "filename": s.filename or "recording",
             "created_at": s.created_at.isoformat(),
             "insights": json.loads(s.insights_json),
             "signals": json.loads(s.signals_json)
@@ -149,11 +157,12 @@ def get_user_baseline(db, user_id: str):
     }
 
 
-def save_session(db, session_id, user_id, signals, insights, context):
+def save_session(db, session_id, user_id, signals, insights, context, filename="recording"):
     session = Session(
         id=session_id,
         user_id=user_id,
         context=context,
+        filename=filename,
         signals_json=json.dumps(signals),
         insights_json=json.dumps(insights)
     )

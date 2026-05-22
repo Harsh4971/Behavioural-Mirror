@@ -5,9 +5,9 @@ class InsightGenerator:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
 
-    def generate(self, signals: dict, context: str, user_baseline: dict = None) -> dict:
+    def generate(self, signals: dict, context: str, user_baseline: dict = None, transcript_text: str = "") -> dict:
         structured_input = self._prepare_input(signals, context, user_baseline)
-        prompt = self._build_prompt(structured_input)
+        prompt = self._build_prompt(structured_input, transcript_text)
 
         response = self.client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -62,7 +62,14 @@ class InsightGenerator:
 
         return prepared
 
-    def _build_prompt(self, data: dict) -> str:
+    def _build_prompt(self, data: dict, transcript_text: str = "") -> str:
+        transcript_section = ""
+        if transcript_text:
+            transcript_section = f"""
+CONVERSATION TRANSCRIPT (partial):
+{transcript_text}
+"""
+
         return f"""You are a behavioral communication analyst. Generate reflective, non-judgmental observations about conversational behavior patterns.
 
 STRICT RULES:
@@ -72,13 +79,14 @@ STRICT RULES:
 4. Observations must be grounded in the specific signals provided
 5. Generate exactly 3 observations
 6. Output must be valid JSON only — no extra text, no markdown, no code fences
-
+{transcript_section}
 SESSION DATA:
 {json.dumps(data, indent=2)}
 
 Output this exact JSON structure:
 {{
-  "summary_sentence": "One sentence describing the overall conversational pattern.",
+  "conversation_summary": "3-4 sentences. Based on the transcript and context, describe what this conversation was actually about — what topics were discussed, what was the apparent purpose, what happened during the exchange. Be specific about content where possible. Example: 'The speakers appeared to discuss a planned trip, debating destination choices and budget. The conversation included a light disagreement about timing, followed by a resolution. The tone was informal and friendly throughout.' Use the actual transcript content, not just behavioral signals.",
+  "summary_sentence": "One sentence describing the overall behavioral and communication pattern observed — not the content, but how the conversation flowed.",
   "observations": [
     {{
       "signal": "talk_ratio",
@@ -96,7 +104,7 @@ Output this exact JSON structure:
       "resonance_prompt": "A gentle reflective question for the user."
     }}
   ],
-  "notable_pattern": "One sentence about the most notable pattern, or null.",
+  "notable_pattern": "One sentence about the most notable behavioral pattern, or null.",
   "data_confidence": "high"
 }}"""
 
