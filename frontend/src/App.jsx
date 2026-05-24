@@ -34,7 +34,13 @@ export default function App() {
         <UploadView onResults={(r) => { setResults(r); setView("results") }} />
       )}
       {view === "results" && results && (
-        <ResultsView results={results} onBack={() => setView("upload")} />
+        <ResultsView
+          results={results}
+          onBack={() => setView("upload")}
+          onReanalyze={(newSpeaker) => {
+            setView("upload")
+          }}
+        />
       )}
       {view === "history" && (
         <HistoryView onSelect={(r) => { setResults(r); setView("results") }} />

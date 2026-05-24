@@ -37,7 +37,15 @@ export default function HistoryView({ onSelect }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {sessions.map(s => (
           <div key={s.session_id}
-            onClick={() => onSelect({ signals: s.signals, insights: s.insights })}
+            onClick={() => onSelect({
+              signals: s.signals,
+              insights: s.insights,
+              dimensions: s.dimensions || {},
+              filename: s.filename || "recording",
+              detected_speaker: s.detected_speaker || "SPEAKER_00",
+              speaker_confirmed: s.speaker_confirmed || false,
+              session_id: s.session_id
+            })}
             style={{ border: "1px solid #eee", borderRadius: 10, padding: 16,
               background: "white", cursor: "pointer",
               transition: "border-color 0.2s" }}

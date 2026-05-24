@@ -10,6 +10,7 @@ from pipeline.transcriber import Transcriber
 from pipeline.diarizer import Diarizer
 from pipeline.signal_extractor import SignalExtractor
 from pipeline.insight_generator import InsightGenerator
+from pipeline.dimension_scorer import DimensionScorer
 from db.database import SessionLocal, Session, Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -30,6 +31,7 @@ print("Loading models... this may take a minute on first run.")
 transcriber = Transcriber(model_size="small")
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
+dimension_scorer = DimensionScorer()
 print("All models loaded. Server ready.")
 
 
@@ -57,7 +59,7 @@ async def analyze_session(
 
     # Convert to proper WAV format using ffmpeg
     import subprocess
-    result_conv = subprocess.run([
+    subprocess.run([
         "ffmpeg", "-i", temp_path,
         "-ar", "16000",
         "-ac", "1",
@@ -74,33 +76,47 @@ async def analyze_session(
         print(f"[{session_id}] Diarizing...")
         diarization = diarizer.diarize(audio_path, num_speakers=num_speakers)
 
-        # Step 3: Merge
+        # Step 3: Auto-detect primary speaker
+        print(f"[{session_id}] Detecting primary speaker...")
+        auto_speaker = SignalExtractor.detect_primary_speaker(audio_path, diarization)
+        effective_speaker = auto_speaker if user_speaker == "SPEAKER_00" else user_speaker
+        print(f"[{session_id}] Using speaker: {effective_speaker}")
+
+        # Step 4: Merge
         print(f"[{session_id}] Merging transcript and speakers...")
         merged = diarizer.merge_transcript_with_speakers(
             transcript["segments"],
             diarization
         )
 
-        # Step 4: Extract signals
+        # Step 5: Extract signals
         print(f"[{session_id}] Extracting signals...")
-        extractor = SignalExtractor(audio_path, merged, user_speaker)
+        extractor = SignalExtractor(audio_path, merged, effective_speaker)
         signals = extractor.extract_all()
 
-        # Step 5: Get baseline
+        # Step 6: Get baseline
         db = SessionLocal()
         baseline = get_user_baseline(db, user_id)
 
-        # Step 6: Generate insights
+        # Step 7: Score dimensions
+        print(f"[{session_id}] Scoring behavioral dimensions...")
+        dimensions = dimension_scorer.score_all(signals)
+
+        # Step 8: Generate insights
         print(f"[{session_id}] Generating insights...")
-        # Build transcript text for summary
         transcript_text = " ".join([
             f"{s.get('speaker', 'UNKNOWN')}: {s.get('text', '')}"
-            for s in merged[:60]  # First 60 segments to stay within token limits
+            for s in merged[:60]
         ])
-        insights = insight_gen.generate(signals, context, baseline, transcript_text)
+        insights = insight_gen.generate(
+            signals, context, baseline, transcript_text, dimensions
+        )
 
-        # Step 7: Save session
-        save_session(db, session_id, user_id, signals, insights, context, filename)
+        # Step 9: Save session
+        save_session(
+            db, session_id, user_id, signals, insights,
+            dimensions, context, filename, effective_speaker
+        )
         db.close()
 
         # Delete audio immediately after processing
@@ -111,7 +127,10 @@ async def analyze_session(
             "session_id": session_id,
             "signals": signals,
             "insights": insights,
-            "filename": filename
+            "dimensions": dimensions,
+            "filename": filename,
+            "detected_speaker": effective_speaker,
+            "speaker_confirmed": False
         }
 
     except Exception as e:
@@ -119,6 +138,17 @@ async def analyze_session(
             os.remove(audio_path)
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sessions/{session_id}/confirm-speaker")
+async def confirm_speaker(session_id: str, confirmed: bool = Form(True)):
+    db = SessionLocal()
+    session = db.query(Session).filter(Session.id == session_id).first()
+    if session:
+        session.speaker_confirmed = confirmed
+        db.commit()
+    db.close()
+    return {"status": "ok"}
 
 
 @app.get("/api/sessions/{user_id}")
@@ -134,9 +164,12 @@ def get_sessions(user_id: str):
             "session_id": s.id,
             "context": s.context,
             "filename": s.filename or "recording",
+            "detected_speaker": s.detected_speaker or "SPEAKER_00",
+            "speaker_confirmed": s.speaker_confirmed or False,
             "created_at": s.created_at.isoformat(),
             "insights": json.loads(s.insights_json),
-            "signals": json.loads(s.signals_json)
+            "signals": json.loads(s.signals_json),
+            "dimensions": json.loads(s.dimensions_json) if s.dimensions_json else {}
         }
         for s in sessions
     ]
@@ -157,14 +190,18 @@ def get_user_baseline(db, user_id: str):
     }
 
 
-def save_session(db, session_id, user_id, signals, insights, context, filename="recording"):
+def save_session(db, session_id, user_id, signals, insights, dimensions,
+                 context, filename="recording", detected_speaker="SPEAKER_00"):
     session = Session(
         id=session_id,
         user_id=user_id,
         context=context,
         filename=filename,
+        detected_speaker=detected_speaker,
+        speaker_confirmed=False,
         signals_json=json.dumps(signals),
-        insights_json=json.dumps(insights)
+        insights_json=json.dumps(insights),
+        dimensions_json=json.dumps(dimensions)
     )
     db.add(session)
     db.commit()
