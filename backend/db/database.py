@@ -1,7 +1,10 @@
-from sqlalchemy import create_engine, Column, String, Text, DateTime, Boolean
+from sqlalchemy import create_engine, Column, String, Text, DateTime, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./behavioral_mirror.db"
 
@@ -25,4 +28,29 @@ class Session(Base):
     signals_json = Column(Text)
     insights_json = Column(Text)
     dimensions_json = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    merged_json = Column(Text, nullable=True)
+    all_speakers_signals_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class UserVoiceprint(Base):
+    __tablename__ = "user_voiceprints"
+
+    user_id = Column(String, primary_key=True)
+    embedding_json = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+def run_migrations(engine):
+    """Add columns introduced after initial schema creation. Safe to run on every startup."""
+    new_columns = [
+        ("sessions", "merged_json", "TEXT"),
+        ("sessions", "all_speakers_signals_json", "TEXT"),
+    ]
+    with engine.connect() as conn:
+        for table, col, col_type in new_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass  # column already exists

@@ -2,7 +2,6 @@ import { useState } from "react"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 
 const SCORE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#22c55e", "#10b981"]
-const SCORE_BG = ["#fef2f2", "#fff7ed", "#fffbeb", "#f0fdf4", "#ecfdf5"]
 
 function ScoreBar({ score, max = 5 }) {
   const color = SCORE_COLORS[score - 1] || "#94a3b8"
@@ -138,7 +137,11 @@ function ObservationCard({ obs }) {
 }
 
 export default function ResultsView({ results, onBack, onReanalyze }) {
-  const { signals, insights, dimensions, filename, detected_speaker, speaker_confirmed, session_id } = results
+  const [liveResults, setLiveResults] = useState(results)
+  const [reanalyzing, setReanalyzing] = useState(false)
+  const [reanalyzeError, setReanalyzeError] = useState("")
+
+  const { signals, insights, dimensions, filename, detected_speaker, speaker_confirmed, session_id } = liveResults
   const [activeTab, setActiveTab] = useState("overview")
   const [speakerConfirmed, setSpeakerConfirmed] = useState(speaker_confirmed || false)
   const [showSpeakerCheck, setShowSpeakerCheck] = useState(!speaker_confirmed)
@@ -168,7 +171,7 @@ export default function ResultsView({ results, onBack, onReanalyze }) {
         </div>
       )}
 
-      {/* Speaker confirmation */}
+      {/* Speaker confirmation — shown for history sessions not yet confirmed */}
       {showSpeakerCheck && !speakerConfirmed && (
         <div style={{ background: "#fffbeb", border: "1px solid #fde68a",
           borderRadius: 10, padding: 16, marginBottom: 16 }}>
@@ -179,12 +182,16 @@ export default function ResultsView({ results, onBack, onReanalyze }) {
             We auto-detected you as <strong>{detected_speaker || "SPEAKER_00"}</strong>.
             Is this correct?
           </div>
+          {reanalyzeError && (
+            <div style={{ fontSize: 12, color: "#991b1b", marginBottom: 10 }}>
+              ⚠️ {reanalyzeError}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={async () => {
                 setSpeakerConfirmed(true)
                 setShowSpeakerCheck(false)
-                // Save confirmation so it never asks again
                 if (session_id) {
                   try {
                     const form = new FormData()
@@ -203,17 +210,49 @@ export default function ResultsView({ results, onBack, onReanalyze }) {
               Yes, that's me
             </button>
             <button
-              onClick={() => {
-                setShowSpeakerCheck(false)
-                if (onReanalyze) {
-                  const otherSpeaker = detected_speaker === "SPEAKER_00"
-                    ? "SPEAKER_01" : "SPEAKER_00"
-                  onReanalyze(otherSpeaker)
+              disabled={reanalyzing}
+              onClick={async () => {
+                if (!session_id) {
+                  setShowSpeakerCheck(false)
+                  if (onReanalyze) onReanalyze()
+                  return
+                }
+                const otherSpeaker = detected_speaker === "SPEAKER_00"
+                  ? "SPEAKER_01" : "SPEAKER_00"
+                setReanalyzing(true)
+                setReanalyzeError("")
+                try {
+                  const form = new FormData()
+                  form.append("confirmed_speaker", otherSpeaker)
+                  const res = await fetch(
+                    `http://localhost:8000/api/sessions/${session_id}/reanalyze`,
+                    { method: "POST", body: form }
+                  )
+                  if (!res.ok) {
+                    const err = await res.json()
+                    throw new Error(err.detail || "Re-analysis failed")
+                  }
+                  const newData = await res.json()
+                  setLiveResults(newData)
+                  setSpeakerConfirmed(true)
+                  setShowSpeakerCheck(false)
+                } catch (e) {
+                  // If re-analysis data isn't available, fall back to re-upload
+                  if (e.message?.includes("Re-analysis data not available")) {
+                    setShowSpeakerCheck(false)
+                    if (onReanalyze) onReanalyze()
+                  } else {
+                    setReanalyzeError(e.message || "Something went wrong.")
+                  }
+                } finally {
+                  setReanalyzing(false)
                 }
               }}
               style={{ padding: "6px 16px", background: "white", color: "#111",
-                border: "1px solid #ddd", borderRadius: 6, cursor: "pointer", fontSize: 13 }}>
-              No, switch speaker
+                border: "1px solid #ddd", borderRadius: 6,
+                cursor: reanalyzing ? "not-allowed" : "pointer", fontSize: 13,
+                opacity: reanalyzing ? 0.6 : 1 }}>
+              {reanalyzing ? "Switching…" : "No, switch speaker"}
             </button>
           </div>
         </div>

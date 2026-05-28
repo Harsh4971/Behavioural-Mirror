@@ -1,16 +1,18 @@
 import { useState, useEffect } from "react"
 import axios from "axios"
 
-export default function HistoryView({ onSelect }) {
+export default function HistoryView({ onSelect, userId = "default_user", active = false }) {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    axios.get("http://localhost:8000/api/sessions/default_user")
+    if (!active) return
+    setLoading(true)
+    axios.get(`http://localhost:8000/api/sessions/${userId}`)
       .then(res => setSessions(res.data))
       .catch(err => console.error(err))
       .finally(() => setLoading(false))
-  }, [])
+  }, [active, userId])
 
   if (loading) return (
     <div style={{ textAlign: "center", padding: 48, color: "#888" }}>

@@ -3,6 +3,17 @@ import UploadView from "./components/UploadView"
 import ResultsView from "./components/ResultsView"
 import HistoryView from "./components/HistoryView"
 
+function getOrCreateUserId() {
+  let id = localStorage.getItem("bm_user_id")
+  if (!id) {
+    id = crypto.randomUUID()
+    localStorage.setItem("bm_user_id", id)
+  }
+  return id
+}
+
+const USER_ID = getOrCreateUserId()
+
 export default function App() {
   const [view, setView] = useState("upload")
   const [results, setResults] = useState(null)
@@ -30,21 +41,27 @@ export default function App() {
         ))}
       </nav>
 
-      {view === "upload" && (
-        <UploadView onResults={(r) => { setResults(r); setView("results") }} />
-      )}
+      <div style={{ display: view === "upload" ? "block" : "none" }}>
+        <UploadView
+          userId={USER_ID}
+          onResults={(r) => { setResults(r); setView("results") }}
+          onActivate={() => setView("upload")}
+        />
+      </div>
       {view === "results" && results && (
         <ResultsView
           results={results}
-          onBack={() => setView("upload")}
-          onReanalyze={(newSpeaker) => {
-            setView("upload")
-          }}
+          onBack={() => setView("history")}
+          onReanalyze={() => setView("upload")}
         />
       )}
-      {view === "history" && (
-        <HistoryView onSelect={(r) => { setResults(r); setView("results") }} />
-      )}
+      <div style={{ display: view === "history" ? "block" : "none" }}>
+        <HistoryView
+          userId={USER_ID}
+          active={view === "history"}
+          onSelect={(r) => { setResults(r); setView("results") }}
+        />
+      </div>
     </div>
   )
 }
