@@ -12,7 +12,7 @@ class VoiceprintMatcher:
             self._Segment = Segment
             model = Model.from_pretrained(
                 "pyannote/embedding",
-                use_auth_token=hf_token
+                token=hf_token
             )
             self.inference = Inference(model, window="whole")
             self.available = True
@@ -23,6 +23,18 @@ class VoiceprintMatcher:
             self.inference = None
             self._Segment = None
             self.available = False
+
+    def extract_enrollment_embedding(self, audio_path: str) -> "np.ndarray | None":
+        """Extract embedding from a single-speaker enrollment recording (whole file)."""
+        if not self.available:
+            return None
+        try:
+            emb = self.inference(audio_path)
+            if emb is not None:
+                return np.array(emb).flatten()
+        except Exception as e:
+            print(f"[enroll] Embedding failed: {e}")
+        return None
 
     def extract_speaker_embedding(
         self,

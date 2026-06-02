@@ -90,6 +90,7 @@ class SignalExtractor:
             "monologue": self._compute_monologue(user_segs),
             "vocabulary_richness": self._compute_vocabulary_richness(user_segs),
             "silence_ratio": self._compute_silence_ratio(user_segs, other_segs),
+            "crosstalk": self._compute_crosstalk(user_segs, other_segs),
             "timeline": self._build_timeline(user_segs)
         }
 
@@ -284,32 +285,33 @@ class SignalExtractor:
     # ── NEW SIGNALS ──────────────────────────────────────────────
 
     def _compute_vocal_energy(self, user_segs) -> dict:
-        """RMS energy — how loud/intense the user's voice is."""
+        """RMS energy per speaker turn — trend via linear regression."""
         energies = []
-
         for seg in user_segs:
             start_sample = int(seg["start"] * self.sr)
             end_sample = int(seg["end"] * self.sr)
             chunk = self.audio[start_sample:end_sample]
-            if len(chunk) < 100:
+            if len(chunk) < 160:  # skip < 10ms
                 continue
-            rms = float(np.sqrt(np.mean(chunk ** 2)))
-            energies.append(rms)
+            energies.append(float(np.sqrt(np.mean(chunk ** 2))))
 
         if not energies:
-            return {"mean_energy": None, "variability": None, "trend": None}
+            return {"mean_energy": None, "variability": None, "trend": "stable"}
 
-        # Trend: is energy increasing or decreasing over conversation?
-        if len(energies) > 3:
-            first_half = float(np.mean(energies[:len(energies)//2]))
-            second_half = float(np.mean(energies[len(energies)//2:]))
-            trend = "increasing" if second_half > first_half * 1.1 else \
-                    "decreasing" if second_half < first_half * 0.9 else "stable"
+        mean_e = float(np.mean(energies))
+
+        if len(energies) >= 3:
+            x = np.arange(len(energies), dtype=float)
+            slope, _ = np.polyfit(x, energies, 1)
+            # Relative change across the full conversation
+            relative_change = (slope * (len(energies) - 1)) / (mean_e + 1e-9)
+            trend = "increasing" if relative_change > 0.05 else \
+                    "decreasing" if relative_change < -0.05 else "stable"
         else:
-            trend = "insufficient_data"
+            trend = "stable"
 
         return {
-            "mean_energy": round(float(np.mean(energies)), 4),
+            "mean_energy": round(mean_e, 4),
             "variability": round(float(np.std(energies)), 4),
             "trend": trend
         }
@@ -485,6 +487,22 @@ class SignalExtractor:
                 "value": energy_trend
             })
 
+        # Pitch variance — notably monotone or very expressive?
+        pitch_std = signals["pitch_features"].get("std_hz")
+        if pitch_std is not None:
+            if pitch_std < 20:
+                notable.append({
+                    "signal": "pitch",
+                    "reason": "very monotone delivery (low pitch variance)",
+                    "value": pitch_std
+                })
+            elif pitch_std > 60:
+                notable.append({
+                    "signal": "pitch",
+                    "reason": "highly expressive delivery (high pitch variance)",
+                    "value": pitch_std
+                })
+
         # Questions — very one-sided?
         q_ratio = signals["questions"]["question_ratio"]
         if q_ratio > 0.7 or q_ratio < 0.3:
@@ -511,8 +529,35 @@ class SignalExtractor:
                 "value": signals["monologue"]["longest_turn_s"]
             })
 
+        # Crosstalk — high simultaneous speech?
+        crosstalk = signals["crosstalk"]["crosstalk_ratio"]
+        if crosstalk > 0.05:
+            notable.append({
+                "signal": "crosstalk",
+                "reason": "high simultaneous speech" if crosstalk > 0.1 else "noticeable crosstalk",
+                "value": crosstalk
+            })
+
         # Sort by most extreme values, take top 4
         return notable[:4] if len(notable) >= 4 else notable
+
+    def _compute_crosstalk(self, user_segs, other_segs) -> dict:
+        """Simultaneous speech — both speakers talking at the same time."""
+        duration = self._get_session_duration()
+        if not duration or not other_segs:
+            return {"crosstalk_ratio": 0.0, "crosstalk_s": 0.0}
+
+        total_overlap = 0.0
+        for u in user_segs:
+            for o in other_segs:
+                overlap = min(u["end"], o["end"]) - max(u["start"], o["start"])
+                if overlap > 0:
+                    total_overlap += overlap
+
+        return {
+            "crosstalk_ratio": round(total_overlap / duration, 3),
+            "crosstalk_s": round(total_overlap, 2),
+        }
 
     def _build_timeline(self, user_segs) -> list:
         if not self.segments:
