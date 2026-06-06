@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-const G = "linear-gradient(135deg, #d946ef 0%, #f97316 100%)"
+const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
 const MOCK_DIMENSIONS = [
   { name: "Confidence",           score: 68, label: "Assured"   },
@@ -23,7 +23,7 @@ function MockDimBar({ name, score, label }) {
           {score}
         </span>
       </div>
-      <div style={{ height: 4, background: "#2a2a42", borderRadius: 2 }}>
+      <div style={{ height: 4, background: "#1e2438", borderRadius: 2 }}>
         <div style={{ height: "100%", borderRadius: 2,
           width: `${score}%`, background: G }} />
       </div>
@@ -34,7 +34,26 @@ function MockDimBar({ name, score, label }) {
 function StepConcept() {
   return (
     <div>
-      <div style={{ fontSize: 44, textAlign: "center", marginBottom: 18 }}>🪞</div>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
+        <svg width="48" height="48" viewBox="0 0 52 52" fill="none">
+          <defs>
+            <linearGradient id="onb-g" x1="0" y1="0" x2="52" y2="0" gradientUnits="userSpaceOnUse">
+              <stop stopColor="#1d4ed8"/><stop offset="1" stopColor="#0891b2"/>
+            </linearGradient>
+          </defs>
+          <rect x="2"  y="20" width="6"  height="6"  rx="3" fill="url(#onb-g)" opacity=".35"/>
+          <rect x="11" y="13" width="6"  height="13" rx="3" fill="url(#onb-g)" opacity=".6"/>
+          <rect x="20" y="6"  width="8"  height="20" rx="4" fill="url(#onb-g)"/>
+          <rect x="31" y="13" width="6"  height="13" rx="3" fill="url(#onb-g)" opacity=".6"/>
+          <rect x="40" y="20" width="6"  height="6"  rx="3" fill="url(#onb-g)" opacity=".35"/>
+          <line x1="0" y1="28" x2="52" y2="28" stroke="#1e2438" strokeWidth="1.25"/>
+          <rect x="2"  y="29" width="6"  height="6"  rx="3" fill="url(#onb-g)" opacity=".15"/>
+          <rect x="11" y="29" width="6"  height="13" rx="3" fill="url(#onb-g)" opacity=".27"/>
+          <rect x="20" y="29" width="8"  height="20" rx="4" fill="url(#onb-g)" opacity=".33"/>
+          <rect x="31" y="29" width="6"  height="13" rx="3" fill="url(#onb-g)" opacity=".27"/>
+          <rect x="40" y="29" width="6"  height="6"  rx="3" fill="url(#onb-g)" opacity=".15"/>
+        </svg>
+      </div>
       <h1 style={{ fontSize: 26, fontWeight: 700, color: "#f0eeff",
         margin: "0 0 14px", lineHeight: 1.25, textAlign: "center",
         letterSpacing: "-0.4px" }}>
@@ -43,7 +62,7 @@ function StepConcept() {
       <p style={{ fontSize: 14, color: "#8b89aa", lineHeight: 1.8,
         margin: "0 0 28px", textAlign: "center" }}>
         Most people go through hundreds of conversations without ever seeing their
-        own patterns. Behavioural Mirror changes that — not by telling you what to
+        own patterns. mirror. changes that — not by telling you what to
         say, but by reflecting how you actually show up.
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -56,7 +75,7 @@ function StepConcept() {
            "Most people only get this from years of therapy or a very honest coach. This is a faster mirror."],
         ].map(([title, body]) => (
           <div key={title} style={{ display: "flex", gap: 14, padding: "14px 16px",
-            background: "#14141f", border: "1px solid #2a2a42", borderRadius: 10 }}>
+            background: "#151922", border: "1px solid #1e2438", borderRadius: 10 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
               background: G, marginTop: 5 }} />
             <div>
@@ -104,13 +123,13 @@ function StepHow() {
             {i < arr.length - 1 && (
               <div style={{ position: "absolute", left: 16, top: 38,
                 width: 2, height: "calc(100% - 12px)",
-                background: "#2a2a42", zIndex: 0 }} />
+                background: "#1e2438", zIndex: 0 }} />
             )}
             <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-              background: "rgba(217,70,239,0.1)",
-              border: "1px solid rgba(217,70,239,0.3)",
+              background: "rgba(29,78,216,0.1)",
+              border: "1px solid rgba(29,78,216,0.3)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 13, fontWeight: 700, color: "#e879f9", zIndex: 1 }}>
+              fontSize: 13, fontWeight: 700, color: "#5b9cf6", zIndex: 1 }}>
               {num}
             </div>
             <div style={{ paddingBottom: i < arr.length - 1 ? 26 : 0 }}>
@@ -137,7 +156,7 @@ function StepPreview() {
         not generic advice.
       </p>
 
-      <div style={{ background: "#14141f", border: "1px solid #2a2a42",
+      <div style={{ background: "#151922", border: "1px solid #1e2438",
         borderRadius: 12, padding: "18px 20px", position: "relative" }}>
         <div style={{ position: "absolute", top: 12, right: 14, fontSize: 10,
           color: "#3a3a52", textTransform: "uppercase", letterSpacing: 0.6,
@@ -146,12 +165,29 @@ function StepPreview() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-          <span style={{ fontSize: 14 }}>🪞</span>
+          <svg width="14" height="14" viewBox="0 0 32 32" fill="none" style={{ flexShrink: 0 }}>
+            <defs>
+              <linearGradient id="onb-sm-g" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#1d4ed8"/><stop offset="1" stopColor="#0891b2"/>
+              </linearGradient>
+            </defs>
+            <rect x="2"  y="12" width="4" height="4"  rx="2" fill="url(#onb-sm-g)" opacity=".4"/>
+            <rect x="8"  y="8"  width="4" height="8"  rx="2" fill="url(#onb-sm-g)" opacity=".65"/>
+            <rect x="14" y="4"  width="4" height="12" rx="2" fill="url(#onb-sm-g)"/>
+            <rect x="20" y="8"  width="4" height="8"  rx="2" fill="url(#onb-sm-g)" opacity=".65"/>
+            <rect x="26" y="12" width="4" height="4"  rx="2" fill="url(#onb-sm-g)" opacity=".4"/>
+            <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" strokeWidth="1"/>
+            <rect x="2"  y="18" width="4" height="4"  rx="2" fill="url(#onb-sm-g)" opacity=".18"/>
+            <rect x="8"  y="18" width="4" height="8"  rx="2" fill="url(#onb-sm-g)" opacity=".3"/>
+            <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#onb-sm-g)" opacity=".38"/>
+            <rect x="20" y="18" width="4" height="8"  rx="2" fill="url(#onb-sm-g)" opacity=".3"/>
+            <rect x="26" y="18" width="4" height="4"  rx="2" fill="url(#onb-sm-g)" opacity=".18"/>
+          </svg>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>The Mirror</span>
         </div>
 
         <p style={{ fontSize: 13, color: "#c4c2d8", lineHeight: 1.85,
-          margin: "0 0 18px", borderLeft: "2px solid rgba(217,70,239,0.35)",
+          margin: "0 0 18px", borderLeft: "2px solid rgba(29,78,216,0.35)",
           paddingLeft: 12 }}>
           You lead conversations confidently in collaborative settings, but pull back
           noticeably when you're being assessed. Your listening quality is consistently
@@ -164,7 +200,7 @@ function StepPreview() {
         </div>
 
         <div style={{ marginTop: 14, padding: "12px 14px",
-          background: "#0e0e1a", border: "1px dashed #2a2a42", borderRadius: 8,
+          background: "#0e1320", border: "1px dashed #1e2438", borderRadius: 8,
           display: "flex", gap: 12, alignItems: "flex-start" }}>
           <div style={{ fontSize: 13, color: "#4a4865", flexShrink: 0 }}>?</div>
           <div>
@@ -201,7 +237,7 @@ export default function OnboardingView({ onDone }) {
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center",
-      justifyContent: "center", padding: "32px 24px", background: "#09090f" }}>
+      justifyContent: "center", padding: "32px 24px", background: "#0f1117" }}>
       <div style={{ maxWidth: 500, width: "100%" }}>
 
         {/* Step indicators */}
@@ -213,7 +249,7 @@ export default function OnboardingView({ onDone }) {
               width: i === step ? 24 : 8,
               background: i <= step
                 ? G
-                : "#2a2a42",
+                : "#1e2438",
               transition: "all 0.3s ease",
             }} />
           ))}
@@ -241,7 +277,7 @@ export default function OnboardingView({ onDone }) {
             onClick={step < STEPS.length - 1 ? () => setStep(s => s + 1) : finish}
             style={{ padding: "12px 28px", background: G, color: "white",
               border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer",
-              fontWeight: 600, boxShadow: "0 0 24px rgba(217,70,239,0.25)" }}>
+              fontWeight: 600, boxShadow: "0 0 24px rgba(29,78,216,0.25)" }}>
             {step < STEPS.length - 1 ? "Next →" : "Get started →"}
           </button>
         </div>

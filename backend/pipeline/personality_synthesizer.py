@@ -24,7 +24,6 @@ class PersonalitySynthesizer:
         patterns = profile_data.get("patterns", [])
         trends = profile_data.get("trends", [])
 
-        # Paragraph depth instruction scales with session count
         if n <= 5:
             depth_note = (
                 "You have limited data (few sessions). Keep the portrait observational — "
@@ -63,23 +62,19 @@ class PersonalitySynthesizer:
         for k, v in dim_avgs.items():
             dim_lines += f"  {k}: {v}\n"
 
-        # Per-session log for grounding narratives in specific conversations
         session_log = ""
         if sessions_data:
-            session_log = "\nSESSION LOG (use these to ground dimension narratives — reference by context type):\n"
+            session_log = "\nSESSION LOG (reference by context type when writing the shape narrative):\n"
             for i, s in enumerate(sessions_data[-10:], 1):
                 scores = ", ".join(f"{k}={v}" for k, v in s.get("dim_scores", {}).items())
                 notable = s.get("notable_pattern", "")
                 notable_str = f' | pattern: "{notable}"' if notable else ""
-                quotes = s.get("sample_quotes", [])
-                quotes_str = ""
-                if quotes:
-                    q_list = "  /  ".join(f'"{q}"' for q in quotes[:2])
-                    quotes_str = f'\n     quotes: {q_list}'
+                fingerprint = s.get("fingerprint", "")
+                fp_str = f'\n     behavioral summary: {fingerprint[:200]}…' if fingerprint else ""
                 session_log += (
                     f"  {i}. {s['context']} | {scores} "
                     f"| fillers={s['filler_rate']}/100w | talk={s['talk_ratio_pct']}%"
-                    f"{notable_str}{quotes_str}\n"
+                    f"{notable_str}{fp_str}\n"
                 )
 
         return f"""You are building a behavioral personality portrait from {n} recorded conversations.
@@ -87,7 +82,7 @@ class PersonalitySynthesizer:
 {depth_note}
 {context_lines}{pattern_lines}{trend_lines}{dim_lines}{session_log}
 
-TASK: Write a personality portrait paragraph and 5 dimension narratives.
+TASK: Write a personality portrait paragraph, 5 dimension scores with labels, and one shape narrative.
 
 PARAGRAPH RULES:
 1. 3–4 sentences maximum. Write as if describing this person to someone who knows them.
@@ -98,17 +93,13 @@ PARAGRAPH RULES:
 5. Use "you" / "your" — address the person directly.
 6. Never write "seems to" or "appears to" — be direct about observed patterns.
 
-DIMENSION NARRATIVE RULES:
-1. Each narrative must be 2–3 sentences.
-2. Reference context types to ground the narrative — not specific dates.
-   Format: "In your [context type] conversations, ..." or "When you're in [context type] settings, ..."
-   If only one context type exists, describe the pattern within it.
-3. Explain what behavioural pattern drives the score — what actually happens in those settings.
-4. Do not repeat the score number in the narrative. The score is shown separately.
-5. Keep it human — write like a perceptive coach, not an analyst.
-6. If a session quote from the log illustrates the pattern, embed it inline using curly quotes — e.g.
-   'You tend to take charge — "let me explain how this works" is characteristic of how you steer conversations.'
-   Use at most one quote per narrative. Only use it if it genuinely supports the point.
+SHAPE NARRATIVE RULES (one paragraph shown below all 5 scores):
+1. 3–4 sentences. Synthesize what the COMBINATION of all 5 scores reveals — not a summary of each one individually.
+2. Focus on what the pattern of scores means together. High assertiveness + high listening together is unusual and worth naming. High composure + low confidence is a tension worth surfacing.
+3. If one score is notably higher or lower than the others, explain what that asymmetry likely means behaviourally.
+4. End with one concrete thing worth paying attention to, grounded in the overall score pattern.
+5. Write directly to the person ("you", "your"). Sound like a perceptive coach, not an analyst.
+6. Never list the dimension names. Synthesize them into a flowing, human observation.
 
 SCORING — derive dimension scores (integers 0–100) from the averages:
 - confidence: map confidence avg (1–5) → (avg-1)/4*100, reduce by 5pts per filler point above 3.0/100w
@@ -125,38 +116,34 @@ Output valid JSON only — no markdown, no code fences, no extra text:
       "key": "confidence",
       "name": "Confidence",
       "score": <integer 0-100>,
-      "label": "1–3 word label matching the score",
-      "narrative": "2–3 sentences. References a specific session from the log. Explains what happened."
+      "label": "1–3 word label matching the score"
     }},
     {{
       "key": "assertiveness",
       "name": "Assertiveness",
       "score": <integer 0-100>,
-      "label": "short label",
-      "narrative": "2–3 sentences referencing specific session(s)."
+      "label": "short label"
     }},
     {{
       "key": "listening",
       "name": "Listening Quality",
       "score": <integer 0-100>,
-      "label": "short label",
-      "narrative": "2–3 sentences referencing specific session(s)."
+      "label": "short label"
     }},
     {{
       "key": "composure",
       "name": "Composure",
       "score": <integer 0-100>,
-      "label": "short label",
-      "narrative": "2–3 sentences referencing specific session(s)."
+      "label": "short label"
     }},
     {{
       "key": "clarity",
       "name": "Communication Clarity",
       "score": <integer 0-100>,
-      "label": "short label",
-      "narrative": "2–3 sentences referencing specific session(s)."
+      "label": "short label"
     }}
-  ]
+  ],
+  "shape_narrative": "3–4 sentences on what the combination of these 5 scores reveals. Name tensions, unusual pairings, and what the overall pattern means for how this person shows up."
 }}"""
 
     def _parse(self, raw: str, dim_avgs: dict) -> dict:
@@ -176,11 +163,12 @@ Output valid JSON only — no markdown, no code fences, no extra text:
 
             return {
                 "paragraph": "Your behavioral profile is being built. Upload more sessions for deeper insights.",
+                "shape_narrative": "",
                 "dimensions": [
-                    {"key": "confidence",    "name": "Confidence",           "score": _scale("confidence"),                "label": "Moderate", "narrative": ""},
-                    {"key": "assertiveness", "name": "Assertiveness",        "score": _scale("assertiveness"),             "label": "Moderate", "narrative": ""},
-                    {"key": "listening",     "name": "Listening Quality",    "score": _scale("listening_quality"),         "label": "Moderate", "narrative": ""},
-                    {"key": "composure",     "name": "Composure",            "score": _scale("nervousness", invert=True),  "label": "Moderate", "narrative": ""},
-                    {"key": "clarity",       "name": "Communication Clarity","score": _scale("clarity"),                   "label": "Moderate", "narrative": ""},
+                    {"key": "confidence",    "name": "Confidence",            "score": _scale("confidence"),               "label": "Moderate"},
+                    {"key": "assertiveness", "name": "Assertiveness",         "score": _scale("assertiveness"),            "label": "Moderate"},
+                    {"key": "listening",     "name": "Listening Quality",     "score": _scale("listening_quality"),        "label": "Moderate"},
+                    {"key": "composure",     "name": "Composure",             "score": _scale("nervousness", invert=True), "label": "Moderate"},
+                    {"key": "clarity",       "name": "Communication Clarity", "score": _scale("clarity"),                  "label": "Moderate"},
                 ],
             }

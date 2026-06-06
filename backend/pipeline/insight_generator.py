@@ -1,60 +1,44 @@
 import json
 from groq import Groq
 
+
 CONTEXT_COACHING_GUIDE = {
     "social": (
-        "This is a casual, low-stakes social conversation. There are no strict norms to measure "
-        "against. Focus on what was genuinely notable — rapport, warmth, and reciprocal engagement "
-        "matter most. Avoid applying professional communication standards."
+        "Casual, low-stakes social conversation. Focus on rapport, warmth, and reciprocal "
+        "engagement. Avoid applying professional communication standards."
     ),
     "collaborative": (
-        "This is a collaborative working conversation (meeting, brainstorming, planning). "
-        "Prioritize: balanced airtime, turn-taking, question quality, and whether one person "
-        "dominated. Mutual engagement and shared goal orientation matter. Long silences may "
-        "indicate disengagement."
+        "Collaborative working conversation (meeting, brainstorming, planning). "
+        "Balanced airtime, turn-taking, and mutual engagement matter most."
     ),
     "evaluative": (
-        "This is an evaluative conversation — interview, presentation, performance review, or "
-        "assessment. Prioritize: confidence signals, response latency, conciseness. Flag long "
-        "monologues — evaluators expect dialogue, not lectures. Low filler rate matters here "
-        "more than in casual contexts. Concise, direct answers signal competence."
+        "Evaluative conversation — interview, presentation, or assessment. "
+        "Confidence, directness, and concise responses signal competence. "
+        "Evaluators expect dialogue, not lectures."
     ),
     "influential": (
-        "This is a persuasion or influence conversation (sales, pitch, convincing someone). "
-        "Prioritize: whether the other person was engaged or passive, question quality (do "
-        "questions draw out needs?), and clarity of the core argument. Monologuing is a red "
-        "flag — real influence requires dialogue, not broadcasting."
+        "Persuasion or influence conversation (sales, pitch). Real influence "
+        "requires dialogue — monologuing is a red flag. Questions should draw out needs."
     ),
     "negotiation": (
-        "This is a negotiation — competing interests seeking compromise. Prioritize: balance of "
-        "airtime, interruption patterns, response latency (strategic pauses matter here), and "
-        "whether both parties had space to present their position. High interruptions and rushed "
-        "responses signal a power struggle rather than a deal-making mindset."
+        "Negotiation — competing interests seeking compromise. Balanced airtime, "
+        "strategic pauses, and space for both sides to present their position matter."
     ),
     "adversarial": (
-        "This is a conflict or disagreement conversation. Prioritize: listening quality, "
-        "interruption patterns, talk ratio balance, response latency. A very high talk ratio "
-        "by one person usually signals the other isn't being heard. Frequent interruptions "
-        "escalate tension. Long response latency can indicate careful processing or withdrawal."
+        "Conflict or disagreement. Listening quality and interruption patterns are "
+        "critical. High talk ratio by one person usually means the other isn't being heard."
     ),
     "developmental": (
-        "This is a coaching, mentoring, or feedback conversation. Prioritize: question quality "
-        "(do questions provoke genuine reflection?), listening-to-talking balance, and whether "
-        "the person being developed had space to think. The coach or mentor should talk less, "
-        "not more — high talk ratio by the coach is often a red flag."
+        "Coaching, mentoring, or feedback conversation. The coach should talk less, "
+        "not more. Question quality and space for reflection matter most."
     ),
     "support": (
-        "This is an emotional support or empathy-led conversation. A high talk ratio by the "
-        "listener is a red flag — support requires presence, not performance. Prioritize: "
-        "listening ratio, response latency (rushing to respond prevents real empathy), question "
-        "quality (open vs. closed), and whether the supported person felt genuinely heard."
+        "Emotional support conversation. Presence over performance — rushing to respond "
+        "prevents real empathy. Listening ratio and open questions are key."
     ),
     "intimate": (
-        "This is a psychologically intimate conversation — deep personal sharing, mutual "
-        "vulnerability, or emotional connection. Prioritize: balance of vulnerability between "
-        "both speakers, response latency (thoughtful pauses signal processing, not disengagement), "
-        "interruption patterns (interruptions feel like ruptures here), and whether both people "
-        "had equal space to go deep."
+        "Psychologically intimate conversation. Balance of vulnerability between both "
+        "speakers, thoughtful pauses, and no interruptions matter deeply."
     ),
 }
 
@@ -71,22 +55,18 @@ class InsightGenerator:
         prompt = self._build_prompt(
             structured_input,
             transcript_text,
-            signals.get("notable_signals", []),
-            dimensions or {},
             context,
             user_baseline,
             session_history or [],
             resonance_calibration or {},
             conversation_types or [context],
         )
-
         response = self.client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=2500
+            max_tokens=3000,
         )
-
         return self._parse_output(response.choices[0].message.content)
 
     def _prepare_input(self, signals: dict, context: str, baseline: dict) -> dict:
@@ -95,24 +75,14 @@ class InsightGenerator:
             "session_duration_minutes": round(signals["session_duration_s"] / 60, 1),
             "talk_ratio_user": signals["talk_ratio"]["user_ratio"],
             "speech_rate_wpm": signals["speech_rate"]["overall_wpm"],
-            "speech_rate_variability": signals["speech_rate"]["variability"],
-            "avg_response_latency_s": signals["pauses"]["response_latency"]["mean_s"],
-            "within_turn_pause_count": signals["pauses"]["within_turn_pauses"]["count"],
-            "user_interrupted_other": signals["interruptions"]["user_interrupted_other"],
-            "user_was_interrupted": signals["interruptions"]["user_was_interrupted"],
             "filler_rate_per_100_words": signals["filler_words"]["rate_per_100_words"],
             "top_filler_words": list(signals["filler_words"]["breakdown"].keys())[:3],
-            "pitch_mean_hz": signals["pitch_features"].get("mean_hz"),
-            "pitch_std_hz": signals["pitch_features"].get("std_hz"),
-            "vocal_energy_trend": signals["vocal_energy"].get("trend"),
-            "speech_acceleration_trend": signals["speech_acceleration"].get("trend"),
-            "speech_delta_wpm": signals["speech_acceleration"].get("delta_wpm"),
+            "user_interrupted_other": signals["interruptions"]["user_interrupted_other"],
+            "user_was_interrupted": signals["interruptions"]["user_was_interrupted"],
+            "longest_monologue_s": signals["monologue"]["longest_turn_s"],
             "user_questions_asked": signals["questions"]["user_questions_asked"],
             "other_questions_asked": signals["questions"]["other_questions_asked"],
-            "longest_monologue_s": signals["monologue"]["longest_turn_s"],
-            "vocabulary_richness_ttr": signals["vocabulary_richness"]["type_token_ratio"],
-            "silence_ratio": signals["silence_ratio"]["silence_ratio"],
-            "crosstalk_ratio": signals["crosstalk"]["crosstalk_ratio"],
+            "avg_response_latency_s": signals["pauses"]["response_latency"]["mean_s"],
         }
 
         if baseline:
@@ -138,18 +108,12 @@ class InsightGenerator:
                         "context_avg": round(baseline["avg_filler_rate"], 2),
                         "delta_pct": _delta_pct(prepared["filler_rate_per_100_words"], baseline["avg_filler_rate"]),
                     },
-                    "response_latency": {
-                        "current": prepared["avg_response_latency_s"],
-                        "context_avg": round(baseline["avg_response_latency_s"], 2),
-                        "delta_pct": _delta_pct(prepared["avg_response_latency_s"], baseline["avg_response_latency_s"]),
-                    },
                     "talk_ratio": {
                         "current": prepared["talk_ratio_user"],
                         "context_avg": round(baseline["avg_talk_ratio"], 3),
                         "delta_pp": round(prepared["talk_ratio_user"] - baseline["avg_talk_ratio"], 3),
                     },
                 }
-
             elif source == "population_norm":
                 norms = baseline["norms"]
 
@@ -159,192 +123,160 @@ class InsightGenerator:
                     lo, hi, note = norms[key]
                     return (lo <= val <= hi), (round(lo * scale), round(hi * scale)), note
 
-                tr_in, tr_range, tr_note = _norm_check(prepared["talk_ratio_user"], "avg_talk_ratio", scale=100)
-                fr_in, fr_range, fr_note = _norm_check(prepared["filler_rate_per_100_words"], "avg_filler_rate")
-                rl_in, rl_range, rl_note = _norm_check(prepared["avg_response_latency_s"], "avg_response_latency_s")
-                wpm_in, wpm_range, wpm_note = _norm_check(prepared["speech_rate_wpm"], "avg_speech_rate_wpm")
+                tr_in, tr_range, _ = _norm_check(prepared["talk_ratio_user"], "avg_talk_ratio", scale=100)
+                fr_in, fr_range, _ = _norm_check(prepared["filler_rate_per_100_words"], "avg_filler_rate")
 
                 prepared["baseline_comparison"] = {
                     "type": "population_norm",
                     "context": baseline["context"],
-                    "talk_ratio":       {"current_pct": round(prepared["talk_ratio_user"] * 100), "expected_range": tr_range,  "within_norm": tr_in,  "note": tr_note},
-                    "filler_rate":      {"current": prepared["filler_rate_per_100_words"],         "expected_range": fr_range,  "within_norm": fr_in,  "note": fr_note},
-                    "response_latency": {"current": prepared["avg_response_latency_s"],            "expected_range": rl_range,  "within_norm": rl_in,  "note": rl_note},
-                    "speech_rate":      {"current": prepared["speech_rate_wpm"],                   "expected_range": wpm_range, "within_norm": wpm_in, "note": wpm_note},
+                    "talk_ratio": {"current_pct": round(prepared["talk_ratio_user"] * 100),
+                                   "expected_range": tr_range, "within_norm": tr_in},
+                    "filler_rate": {"current": prepared["filler_rate_per_100_words"],
+                                    "expected_range": fr_range, "within_norm": fr_in},
                 }
 
         return prepared
 
     def _build_prompt(self, data: dict, transcript_text: str,
-                      notable_signals: list, dimensions: dict,
                       context: str, baseline: dict,
-                      session_history: list = None,
-                      resonance_calibration: dict = None,
-                      conversation_types: list = None) -> str:
+                      session_history: list,
+                      resonance_calibration: dict,
+                      conversation_types: list) -> str:
 
-        # ── Baseline section ──────────────────────────────────────
+        coaching_guide = CONTEXT_COACHING_GUIDE.get(context, CONTEXT_COACHING_GUIDE["social"])
+
+        # ── Transcript (PRIMARY) ──────────────────────────────────────
+        transcript_section = ""
+        if transcript_text:
+            transcript_section = f"""
+CONVERSATION TRANSCRIPT:
+{transcript_text}
+
+"""
+
+        # ── Supporting signals ────────────────────────────────────────
+        fillers_str = ", ".join(data["top_filler_words"]) if data["top_filler_words"] else "none detected"
+        signals_section = f"""SUPPORTING DATA (use to ground observations — do not lead with these):
+  You spoke: {round(data['talk_ratio_user'] * 100)}% of the time
+  Speech rate: {data['speech_rate_wpm']} wpm
+  Filler words: {data['filler_rate_per_100_words']}/100 words (top: {fillers_str})
+  Interruptions you gave: {data['user_interrupted_other']} | received: {data['user_was_interrupted']}
+  Longest unbroken stretch: {data['longest_monologue_s']}s
+  Questions you asked: {data['user_questions_asked']} | they asked: {data['other_questions_asked']}
+  Response latency: {data['avg_response_latency_s']}s avg
+  Duration: {data['session_duration_minutes']} minutes
+"""
+
+        # ── Baseline ──────────────────────────────────────────────────
         baseline_section = ""
         if "baseline_comparison" in data:
             b = data["baseline_comparison"]
             btype = b.get("type")
-
-            def _fmt_delta(delta, unit=""):
-                if delta is None:
-                    return "no change"
-                sign = "+" if delta > 0 else ""
-                return f"{sign}{delta}{unit}"
-
             if btype == "personal_context":
                 n = b["session_count"]
                 ctx = b["context"].replace("_", " ")
-                sr, fr, rl, tr = b["speech_rate"], b["filler_rate"], b["response_latency"], b["talk_ratio"]
-                baseline_section = f"""
-YOUR {ctx.upper()} BASELINE (from your {n} previous {ctx} sessions):
-REQUIRED: reference at least 2 of these comparisons in your observations or coaching.
-  Speech rate:      {sr['current']} wpm    vs your {ctx} avg {sr['context_avg']} wpm    ({_fmt_delta(sr['delta_pct'], '%')})
-  Filler rate:      {fr['current']}/100w   vs your {ctx} avg {fr['context_avg']}/100w   ({_fmt_delta(fr['delta_pct'], '%')})
-  Response latency: {rl['current']}s       vs your {ctx} avg {rl['context_avg']}s       ({_fmt_delta(rl['delta_pct'], '%')})
-  Talk ratio:       {round(tr['current']*100)}%          vs your {ctx} avg {round(tr['context_avg']*100)}%          ({_fmt_delta(tr['delta_pp']*100, 'pp')})
-"""
+                sr, fr, tr = b["speech_rate"], b["filler_rate"], b["talk_ratio"]
 
+                def _fmt(delta, unit=""):
+                    if delta is None:
+                        return "no change"
+                    return f"{'+'if delta > 0 else ''}{delta}{unit}"
+
+                baseline_section = f"""
+YOUR {ctx.upper()} BASELINE ({n} previous sessions):
+  Speech rate: {sr['current']} wpm vs your avg {sr['context_avg']} wpm ({_fmt(sr['delta_pct'], '%')})
+  Filler rate: {fr['current']}/100w vs your avg {fr['context_avg']}/100w ({_fmt(fr['delta_pct'], '%')})
+  Talk ratio: {round(tr['current']*100)}% vs your avg {round(tr['context_avg']*100)}% ({_fmt(tr['delta_pp']*100, 'pp')})
+"""
             elif btype == "population_norm":
                 ctx = b["context"].replace("_", " ")
-                tr, fr, rl, sr = b["talk_ratio"], b["filler_rate"], b["response_latency"], b["speech_rate"]
-
-                def _norm_line(label, val_str, entry, range_unit=""):
-                    if entry["expected_range"] is None:
-                        return ""
-                    lo, hi = entry["expected_range"]
-                    mark = "✓" if entry["within_norm"] else "✗"
-                    note = f"  — {entry['note']}" if entry["note"] else ""
-                    return f"  {label}: {val_str} (expected {lo}–{hi}{range_unit}) {mark}{note}"
-
-                lines = [
-                    _norm_line("Talk ratio",       f"{tr['current_pct']}%",    tr, "%"),
-                    _norm_line("Filler rate",       f"{fr['current']}/100w",    fr, "/100w"),
-                    _norm_line("Response latency",  f"{rl['current']}s",        rl, "s"),
-                    _norm_line("Speech rate",       f"{sr['current']} wpm",     sr, " wpm"),
-                ]
-                lines = [l for l in lines if l]
-
-                baseline_section = f"""
-CONTEXT NORMS FOR {ctx.upper()} CONVERSATIONS:
-IMPORTANT: Do NOT flag ✓ signals as issues — they are within the expected range for this context.
-Coach only on ✗ signals. Adjust all observations and suggestions accordingly.
+                tr, fr = b["talk_ratio"], b["filler_rate"]
+                mark = lambda v: "✓" if v else "✗"
+                lines = []
+                if tr["expected_range"]:
+                    lo, hi = tr["expected_range"]
+                    lines.append(f"  Talk ratio: {tr['current_pct']}% (expected {lo}–{hi}%) {mark(tr['within_norm'])}")
+                if fr["expected_range"]:
+                    lo, hi = fr["expected_range"]
+                    lines.append(f"  Filler rate: {fr['current']}/100w (expected {lo}–{hi}/100w) {mark(fr['within_norm'])}")
+                if lines:
+                    baseline_section = f"""
+CONTEXT NORMS FOR {ctx.upper()}:
+Do NOT flag ✓ signals as issues. Coach only on ✗ signals.
 {chr(10).join(lines)}
 """
 
-        # ── Session history ───────────────────────────────────────
+        # ── Session history (fingerprints) ────────────────────────────
         history_section = ""
         if session_history:
             n = len(session_history)
-            lines = [
-                f"  Session {i+1} ({s['date']}, {s['context'].replace('_',' ')}): "
-                f"talk={s['signals']['talk_ratio_pct']}%, "
-                f"wpm={s['signals']['wpm']}, "
-                f"fillers={s['signals']['filler_rate']}/100w, "
-                f"interruptions={s['signals']['interruptions_given']} — "
-                f"\"{s['summary']}\""
-                + (f" | coached on: {', '.join(s['top_coaching_areas'])}" if s['top_coaching_areas'] else "")
-                for i, s in enumerate(session_history)
-            ]
-            from collections import Counter
-            all_areas = [a for s in session_history for a in s.get("top_coaching_areas", [])]
-            repeated = [area for area, cnt in Counter(all_areas).most_common() if cnt >= 2]
-            repeat_note = (
-                f"\n  RECURRING ISSUES (flagged in multiple sessions): {', '.join(repeated)}"
-                if repeated else ""
-            )
-            history_section = f"""
-SESSION HISTORY — this is session {n + 1} for this user.
-REQUIRED: mention at least one thing that changed or stayed the same vs previous sessions.
-{chr(10).join(lines)}{repeat_note}
+            lines = []
+            for i, s in enumerate(session_history):
+                ctx = s["context"].replace("_", " ")
+                fp = s.get("fingerprint") or s.get("summary", "")
+                if fp:
+                    lines.append(f"  Session {i+1} ({s['date']}, {ctx}):\n  {fp}")
+            if lines:
+                history_section = f"""
+PAST SESSION FINGERPRINTS — this is session {n + 1} for this user.
+Use these to identify what's recurring vs what's new in this conversation.
+{chr(10).join(lines)}
 """
 
-        # ── Resonance calibration ─────────────────────────────────
+        # ── Resonance calibration ─────────────────────────────────────
         resonance_section = ""
         if resonance_calibration:
             avoid = resonance_calibration.get("avoid", [])
             emphasize = resonance_calibration.get("emphasize", [])
             parts = []
             if avoid:
-                parts.append(f"  AVOID making strong claims about: {', '.join(avoid)}")
+                parts.append(f"  AVOID strong claims about: {', '.join(avoid)}")
             if emphasize:
                 parts.append(f"  PRIORITIZE observations about: {', '.join(emphasize)}")
             if parts:
                 resonance_section = "\nUSER FEEDBACK CALIBRATION:\n" + "\n".join(parts) + "\n"
 
-        # ── Context-specific coaching guide ───────────────────────
-        coaching_guide = CONTEXT_COACHING_GUIDE.get(context, CONTEXT_COACHING_GUIDE["social"])
+        types_str = ", ".join(conversation_types)
 
-        # ── Notable signals ───────────────────────────────────────
-        notable_section = ""
-        if notable_signals:
-            notable_section = f"""
-MOST NOTABLE SIGNALS (build your observations around these first):
-{json.dumps(notable_signals, indent=2)}
-"""
+        return f"""You are a behavioral communication coach. Read the conversation transcript below and provide a deep, specific analysis.
 
-        # ── Dimensions ────────────────────────────────────────────
-        dimensions_section = ""
-        if dimensions:
-            dimensions_section = f"""
-BEHAVIORAL DIMENSION SCORES (1=lowest, 5=highest):
-{json.dumps(dimensions, indent=2)}
-"""
+CONTEXT: {types_str} — {coaching_guide}
+{transcript_section}{signals_section}{baseline_section}{history_section}{resonance_section}
+WHAT TO LOOK FOR (search the transcript specifically for these):
+1. Questions the other person asked that you didn't fully or directly answer
+2. Opinions, concerns, or points they raised that you talked past or didn't acknowledge
+3. Moments where you spoke for an extended stretch without giving them space to respond
+4. Interruptions — where you cut in before they finished their thought
+5. Moments where you seemed to misread what was being asked and answered something else
 
-        # ── Transcript ────────────────────────────────────────────
-        transcript_section = ""
-        if transcript_text:
-            transcript_section = f"""
-CONVERSATION TRANSCRIPT (partial — quote from this where relevant):
-{transcript_text}
-"""
-
-        types_str = ", ".join(conversation_types or [context])
-
-        return f"""You are a behavioral communication coach analyzing a real conversation.
-Generate a specific, honest coaching report. Write directly to the user ("you", "your").
-
-CONVERSATION TYPES: {types_str}
-DURATION: {data['session_duration_minutes']} minutes
-{baseline_section}{history_section}{resonance_section}{notable_section}{dimensions_section}
-ALL SESSION DATA:
-{json.dumps({k: v for k, v in data.items() if k != "baseline_comparison"}, indent=2)}
-{transcript_section}
-CONTEXT-SPECIFIC COACHING GUIDE (primary type: {context}):
-{coaching_guide}
-
-LANGUAGE RULES — follow these precisely:
-1. FACTS (measurements) → always direct, no hedging.
-2. BEHAVIORAL INTERPRETATIONS → hedge roughly half the time for genuinely uncertain inferences.
-3. PSYCHOLOGICAL / EMOTIONAL CLAIMS → always hedge.
-4. COACHING SUGGESTIONS → always direct. No hedging.
-5. Do not default to talk_ratio, speech_rate, or pauses unless they appear in MOST NOTABLE SIGNALS.
-6. Every observation must reference a specific value from the data.
-7. Quote from the transcript when it illustrates your point.
-8. Never use "SPEAKER_00" or "SPEAKER_01" — always "you" and "the other person".
-9. Output valid JSON only — no markdown, no code fences, no extra text.
+RULES:
+1. Ground every observation in something that actually happened in the transcript
+2. Quote directly (in "quotes") when it makes the point concrete — be specific about where in the conversation
+3. Never refer to speakers as SPEAKER_00 or SPEAKER_01 — use "you" and "the other person"
+4. Write directly to the user ("you", "your")
+5. Be specific and honest — no vague generalities
+6. Don't flag signals that are within normal range for this context type
+7. If session history exists, explicitly note what's recurring vs what's different this time
+8. Output valid JSON only — no markdown, no code fences
 
 Output this exact JSON:
 {{
-  "conversation_types": {json.dumps(conversation_types or [context])},
-  "conversation_summary": "3-4 sentences. What was this conversation actually about? What happened? Reference specific things said. What was the overall tone and dynamic?",
-  "summary_sentence": "One direct sentence on the overall communication pattern.",
+  "conversation_summary": "3-4 sentences. What was this conversation actually about? What happened? What was the tone and dynamic? Reference specific things said.",
+  "summary_sentence": "One direct sentence capturing the dominant behavioral pattern in this conversation.",
   "observations": [
     {{
       "signal": "signal_name",
-      "observation": "Specific observation grounded in an actual value.",
-      "resonance_prompt": "A genuine reflective question."
+      "observation": "Specific observation grounded in what actually happened. Quote from transcript where it makes the point. Reference where in the conversation it occurred.",
+      "resonance_prompt": "A genuine reflective question specific to this moment — not generic."
     }},
     {{
-      "signal": "different_signal_name",
-      "observation": "Different observation on a different signal.",
-      "resonance_prompt": "Different reflective question."
+      "signal": "different_signal",
+      "observation": "Second observation on a different aspect of the conversation.",
+      "resonance_prompt": "Second reflective question."
     }},
     {{
-      "signal": "another_signal_name",
-      "observation": "Third observation on a third signal.",
+      "signal": "third_signal",
+      "observation": "Third observation.",
       "resonance_prompt": "Third reflective question."
     }}
   ],
@@ -352,14 +284,14 @@ Output this exact JSON:
     {{
       "priority": 1,
       "area": "area name",
-      "issue": "Specific issue with actual values.",
+      "issue": "What specifically happened in this conversation — quote or reference the moment.",
       "suggestion": "Exactly what to do differently next time.",
-      "why_it_matters": "Why this change improves communication in this type of conversation."
+      "why_it_matters": "Why this matters in this type of conversation."
     }},
     {{
       "priority": 2,
       "area": "different area",
-      "issue": "Second issue.",
+      "issue": "Second specific issue from this conversation.",
       "suggestion": "Second actionable suggestion.",
       "why_it_matters": "Why it matters."
     }},
@@ -371,19 +303,14 @@ Output this exact JSON:
       "why_it_matters": "Why it matters."
     }}
   ],
-  "dimension_narrative": {{
-    "emotional_state": "2 sentences on emotional state scores for this person in this conversation.",
-    "relational_dynamics": "2 sentences on how the two speakers connected or didn't.",
-    "communication_effectiveness": "2 sentences on how effectively they communicated.",
-    "conversation_arc": "2 sentences on how the conversation evolved."
-  }},
-  "notable_pattern": "The single most interesting behavioral pattern from this session. One sentence.",
+  "notable_pattern": "The single most interesting or surprising behavioral pattern from this session. One sentence.",
+  "fingerprint": "200-300 words. Describe what was observed in this {context.replace('_', ' ')} conversation: how the person engaged, how they handled questions directed at them, what they avoided, how they responded under pressure or when challenged, their listening patterns, whether they gave the other person space. Write in behavioral terms — no raw numbers. This will be used as context in future AI sessions to understand this person's patterns.",
   "data_confidence": "high"
 }}"""
 
     def generate_reflection_questions(self, signals: dict, insights: dict,
                                       transcript_text: str, context: str) -> list:
-        prompt = self._build_reflection_prompt(signals, insights, transcript_text, context)
+        prompt = self._build_reflection_prompt(insights, transcript_text, context)
         try:
             response = self.client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -395,48 +322,45 @@ Output this exact JSON:
         except Exception:
             return []
 
-    def _build_reflection_prompt(self, signals: dict, insights: dict,
-                                  transcript_text: str, context: str) -> str:
-        coaching_areas = [c.get("area", "") for c in insights.get("coaching_suggestions", [])[:3]]
+    def _build_reflection_prompt(self, insights: dict, transcript_text: str, context: str) -> str:
         observations_text = "\n".join(
             f"- {o['observation']}" for o in insights.get("observations", [])[:3]
         )
-        talkpct = round(signals.get("talk_ratio", {}).get("user_ratio", 0.5) * 100)
-        fillers = signals.get("filler_words", {}).get("rate_per_100_words", 0)
+        coaching_areas = [c.get("area") for c in insights.get("coaching_suggestions", [])[:2] if c.get("area")]
+        summary = insights.get("conversation_summary", "")
 
-        return f"""You are a behavioral coach. A person just finished a {context.replace("_", " ")} conversation.
-Generate 3 reflection questions grounded in what actually happened in this session.
+        return f"""You are a behavioral coach. A person just finished a {context.replace('_', ' ')} conversation.
+Generate 3 reflection questions grounded in what actually happened.
 
-Session data:
-- Talk ratio: {talkpct}% (you spoke)
-- Filler rate: {fillers}/100 words
-- Coaching areas flagged: {", ".join(coaching_areas)}
+Conversation summary: {summary}
 
 Key observations:
 {observations_text}
 
+Coaching areas flagged: {", ".join(coaching_areas) if coaching_areas else "none"}
+
 Transcript sample:
-{transcript_text[:600] if transcript_text else "Not available"}
+{transcript_text[:800] if transcript_text else "Not available"}
 
 Rules:
-1. Each question must be specific to THIS conversation — not generic self-improvement advice.
-2. The answer explains what the data reveals and what it might mean. 2-3 sentences.
-3. Reference specific moments or patterns from the data/transcript where possible.
-4. Write directly to the person ("you", "your").
+1. Each question must be specific to THIS conversation — not generic self-improvement advice
+2. The answer explains what was observed and what it might mean. 2-3 sentences.
+3. Reference specific moments or patterns from the transcript where possible
+4. Write directly to the person ("you", "your")
+5. Output valid JSON only — no markdown, no code fences
 
-Output valid JSON only — no markdown, no code fences:
 [
   {{
-    "question": "A specific, non-generic reflection question grounded in this conversation.",
-    "answer": "2-3 sentences explaining what the data shows and what it might mean. Reference something specific."
+    "question": "Specific reflective question grounded in this conversation.",
+    "answer": "2-3 sentences on what was observed and what it might mean."
   }},
   {{
-    "question": "Second reflection question addressing a different aspect.",
-    "answer": "2-3 sentences on what the data reveals."
+    "question": "Second question addressing a different aspect.",
+    "answer": "2-3 sentences."
   }},
   {{
     "question": "Third question — surface something they might not have noticed.",
-    "answer": "2-3 sentences on the insight."
+    "answer": "2-3 sentences."
   }}
 ]"""
 
@@ -464,12 +388,11 @@ Output valid JSON only — no markdown, no code fences:
             return json.loads(clean.strip())
         except Exception:
             return {
-                "conversation_types": ["social"],
-                "conversation_summary": "Session analyzed successfully.",
-                "summary_sentence": "Session analyzed successfully.",
+                "conversation_summary": "Session analyzed.",
+                "summary_sentence": "Session analyzed.",
                 "observations": [],
                 "coaching_suggestions": [],
-                "dimension_narrative": {},
                 "notable_pattern": None,
-                "data_confidence": "low"
+                "fingerprint": None,
+                "data_confidence": "low",
             }

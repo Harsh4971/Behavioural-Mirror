@@ -1,7 +1,7 @@
 import { useState, useRef } from "react"
 import api from "../lib/api"
 
-const G = "linear-gradient(135deg, #d946ef 0%, #f97316 100%)"
+const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 const MIN_SECONDS = 20
 const MAX_SECONDS = 60
 
@@ -114,7 +114,7 @@ export default function EnrollView({ onEnrolled, onSkip }) {
         <button onClick={onEnrolled}
           style={{ padding: "12px 40px", background: G, color: "white",
             border: "none", borderRadius: 8, fontSize: 15, cursor: "pointer",
-            fontWeight: 600, boxShadow: "0 0 24px rgba(217,70,239,0.3)" }}>
+            fontWeight: 600, boxShadow: "0 0 24px rgba(29,78,216,0.3)" }}>
           Continue to app
         </button>
       </div>
@@ -138,8 +138,8 @@ export default function EnrollView({ onEnrolled, onSkip }) {
             {[1, 2, 3].map(r => (
               <div key={r} style={{
                 width: 10, height: 10, borderRadius: "50%",
-                background: r < round ? G : r === round ? "rgba(217,70,239,0.35)" : "#2a2a42",
-                boxShadow: r <= round ? "0 0 6px rgba(217,70,239,0.35)" : "none",
+                background: r < round ? G : r === round ? "rgba(29,78,216,0.35)" : "#1e2438",
+                boxShadow: r <= round ? "0 0 6px rgba(29,78,216,0.35)" : "none",
                 transition: "all 0.3s",
               }} />
             ))}
@@ -151,15 +151,15 @@ export default function EnrollView({ onEnrolled, onSkip }) {
       </div>
 
       {/* Round content */}
-      <div style={{ background: "#14141f", borderRadius: 12, padding: 20,
-        marginBottom: 14, border: "1px solid #2a2a42" }}>
+      <div style={{ background: "#151922", borderRadius: 12, padding: 20,
+        marginBottom: 14, border: "1px solid #1e2438" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: "#8b89aa",
             textTransform: "uppercase", letterSpacing: 0.5 }}>
             Round {round}
           </span>
-          <span style={{ fontSize: 11, background: "rgba(217,70,239,0.1)",
-            color: "#e879f9", border: "1px solid rgba(217,70,239,0.25)",
+          <span style={{ fontSize: 11, background: "rgba(29,78,216,0.1)",
+            color: "#5b9cf6", border: "1px solid rgba(29,78,216,0.25)",
             borderRadius: 20, padding: "2px 8px", fontWeight: 600 }}>
             {roundConfig.badge}
           </span>
@@ -178,7 +178,7 @@ export default function EnrollView({ onEnrolled, onSkip }) {
           ))
         ) : (
           <p style={{ margin: "0 0 4px", fontSize: 14, color: "#8b89aa", lineHeight: 1.7,
-            background: "#1a1a2e", border: "1px solid #2a2a42", borderRadius: 8,
+            background: "#131827", border: "1px solid #1e2438", borderRadius: 8,
             padding: "12px 14px" }}>
             {roundConfig.content}
           </p>
@@ -188,14 +188,14 @@ export default function EnrollView({ onEnrolled, onSkip }) {
       </div>
 
       {/* Recording area */}
-      <div style={{ background: "#14141f", borderRadius: 14, padding: 28,
-        marginBottom: 18, textAlign: "center", border: "1px solid #2a2a42" }}>
+      <div style={{ background: "#151922", borderRadius: 14, padding: 28,
+        marginBottom: 18, textAlign: "center", border: "1px solid #1e2438" }}>
 
         {state === "idle" && (
           <>
             <div style={{ fontSize: 44, marginBottom: 12 }}>🎤</div>
             <p style={{ fontSize: 13, color: "#8b89aa", margin: 0, lineHeight: 1.6 }}>
-              Click <strong style={{ color: "#e879f9" }}>Start recording</strong>,
+              Click <strong style={{ color: "#5b9cf6" }}>Start recording</strong>,
               then read the sentences above clearly.
             </p>
           </>
@@ -208,13 +208,13 @@ export default function EnrollView({ onEnrolled, onSkip }) {
               fontVariantNumeric: "tabular-nums" }}>
               {elapsed}s
             </div>
-            <div style={{ height: 5, background: "#2a2a42", borderRadius: 3,
+            <div style={{ height: 5, background: "#1e2438", borderRadius: 3,
               margin: "14px 0 10px", overflow: "hidden" }}>
               <div style={{
                 height: "100%", borderRadius: 3,
                 background: canStop ? "#34d399" : G,
                 boxShadow: canStop ? "0 0 8px rgba(52,211,153,0.5)"
-                  : "0 0 8px rgba(217,70,239,0.4)",
+                  : "0 0 8px rgba(29,78,216,0.4)",
                 width: `${progressPct}%`,
                 transition: "width 0.8s linear, background 0.4s",
               }} />
@@ -265,7 +265,7 @@ export default function EnrollView({ onEnrolled, onSkip }) {
           style={{ width: "100%", padding: "13px 24px", background: G,
             color: "white", border: "none", borderRadius: 8, fontSize: 15,
             cursor: "pointer", fontWeight: 600, marginBottom: 10,
-            boxShadow: "0 0 24px rgba(217,70,239,0.3)" }}>
+            boxShadow: "0 0 24px rgba(29,78,216,0.3)" }}>
           Start recording
         </button>
       )}
@@ -273,13 +273,13 @@ export default function EnrollView({ onEnrolled, onSkip }) {
       {state === "recording" && (
         <button onClick={stopRecording} disabled={!canStop}
           style={{ width: "100%", padding: "13px 24px",
-            background: canStop ? G : "#14141f",
-            color: canStop ? "white" : "#2a2a42",
-            border: canStop ? "none" : "1px solid #2a2a42",
+            background: canStop ? G : "#151922",
+            color: canStop ? "white" : "#1e2438",
+            border: canStop ? "none" : "1px solid #1e2438",
             borderRadius: 8, fontSize: 15,
             cursor: canStop ? "pointer" : "not-allowed",
             fontWeight: 600, marginBottom: 10,
-            boxShadow: canStop ? "0 0 24px rgba(217,70,239,0.3)" : "none",
+            boxShadow: canStop ? "0 0 24px rgba(29,78,216,0.3)" : "none",
             transition: "all 0.3s" }}>
           {canStop ? `Stop — save round ${round}` : `Stop (${MIN_SECONDS - elapsed}s left)`}
         </button>
@@ -290,7 +290,7 @@ export default function EnrollView({ onEnrolled, onSkip }) {
           style={{ width: "100%", padding: "13px 24px", background: G,
             color: "white", border: "none", borderRadius: 8, fontSize: 15,
             cursor: "pointer", fontWeight: 600, marginBottom: 10,
-            boxShadow: "0 0 24px rgba(217,70,239,0.3)" }}>
+            boxShadow: "0 0 24px rgba(29,78,216,0.3)" }}>
           {round < 3 ? `Continue to Round ${round + 1} →` : "Submit voice enrollment"}
         </button>
       )}
@@ -298,7 +298,7 @@ export default function EnrollView({ onEnrolled, onSkip }) {
       {(state === "idle" || state === "recording") && (
         <button onClick={onSkip} disabled={state === "recording"}
           style={{ width: "100%", padding: "10px 24px", background: "none",
-            color: state === "recording" ? "#2a2a42" : "#4a4865",
+            color: state === "recording" ? "#1e2438" : "#4a4865",
             border: "none", fontSize: 13,
             cursor: state === "recording" ? "not-allowed" : "pointer" }}>
           Skip for now — analysis will still work, speaker detection may be less accurate

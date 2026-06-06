@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react"
 import api from "../lib/api"
+import Reveal from "./Reveal"
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
-const G = "linear-gradient(135deg, #d946ef 0%, #f97316 100%)"
+const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
 const PREPARE_STEPS = [
   { key: "transcribing", label: "Transcribing audio" },
@@ -36,14 +37,14 @@ function StepProgress({ steps, currentStep, title, onCancel }) {
             <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{
                 width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                background: isDone ? G : isCurrent ? "rgba(217,70,239,0.1)" : "#14141f",
-                border: `2px solid ${isDone ? "transparent" : isCurrent ? "#d946ef" : "#2a2a42"}`,
+                background: isDone ? G : isCurrent ? "rgba(29,78,216,0.1)" : "#151922",
+                border: `2px solid ${isDone ? "transparent" : isCurrent ? "#1d4ed8" : "#1e2438"}`,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: isCurrent ? "0 0 16px rgba(217,70,239,0.4)" : "none",
+                boxShadow: isCurrent ? "0 0 16px rgba(29,78,216,0.4)" : "none",
                 transition: "all 0.3s",
               }}>
                 {isDone && <span style={{ color: "white", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                {isCurrent && <div style={{ width: 8, height: 8, background: "#d946ef",
+                {isCurrent && <div style={{ width: 8, height: 8, background: "#1d4ed8",
                   borderRadius: "50%" }} />}
               </div>
               <div>
@@ -55,7 +56,7 @@ function StepProgress({ steps, currentStep, title, onCancel }) {
                   {step.label}
                 </span>
                 {isCurrent && (
-                  <span style={{ fontSize: 12, color: "#e879f9", marginLeft: 6 }}>
+                  <span style={{ fontSize: 12, color: "#5b9cf6", marginLeft: 6 }}>
                     — in progress…
                   </span>
                 )}
@@ -69,7 +70,7 @@ function StepProgress({ steps, currentStep, title, onCancel }) {
       </p>
       {onCancel && (
         <button onClick={onCancel}
-          style={{ marginTop: 12, background: "none", border: "1px solid #2a2a42",
+          style={{ marginTop: 12, background: "none", border: "1px solid #1e2438",
             borderRadius: 6, padding: "6px 18px", fontSize: 12, color: "#4a4865",
             cursor: "pointer" }}>
           Cancel
@@ -287,17 +288,17 @@ export default function UploadView({ onResults, onActivate }) {
   const hasFile = !!file
 
   return (
-    <div>
+    <Reveal>
       {/* Drop zone */}
       <div
         onClick={() => document.getElementById("file-input").click()}
         style={{
-          border: `2px dashed ${hasFile ? "#d946ef" : "#2a2a42"}`,
+          border: `2px dashed ${hasFile ? "#1d4ed8" : "#1e2438"}`,
           borderRadius: 16, padding: "52px 32px",
           textAlign: "center", marginBottom: 20, cursor: "pointer",
-          background: hasFile ? "rgba(217,70,239,0.04)" : "#14141f",
+          background: hasFile ? "rgba(29,78,216,0.04)" : "#151922",
           transition: "all 0.2s",
-          boxShadow: hasFile ? "inset 0 0 40px rgba(217,70,239,0.04)" : "none",
+          boxShadow: hasFile ? "inset 0 0 40px rgba(29,78,216,0.04)" : "none",
         }}>
         <input id="file-input" type="file" accept="*/*"
           style={{ display: "none" }}
@@ -335,20 +336,20 @@ export default function UploadView({ onResults, onActivate }) {
       )}
 
       <button onClick={handlePrepare} disabled={!hasFile}
+        className={hasFile ? "btn-grad" : ""}
         style={{ width: "100%", padding: "15px 24px",
-          background: hasFile ? G : "#14141f",
+          background: hasFile ? G : "#151922",
           color: hasFile ? "white" : "#2a2a42",
-          border: hasFile ? "none" : "1px solid #2a2a42",
+          border: hasFile ? "none" : "1px solid #1e2438",
           borderRadius: 10, fontSize: 15,
           cursor: hasFile ? "pointer" : "not-allowed", fontWeight: 600,
-          boxShadow: hasFile ? "0 0 28px rgba(217,70,239,0.3)" : "none",
-          transition: "all 0.2s" }}>
+          boxShadow: hasFile ? "0 0 28px rgba(29,78,216,0.3)" : "none" }}>
         Analyze Conversation
       </button>
 
       <p style={{ fontSize: 11, color: "#4a4865", textAlign: "center", marginTop: 12 }}>
         🔒 Audio is deleted immediately after analysis. Only behavioral signals are stored.
       </p>
-    </div>
+    </Reveal>
   )
 }

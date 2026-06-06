@@ -1,8 +1,9 @@
 import { useState } from "react"
+import Reveal, { RevealItem } from "./Reveal"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import api from "../lib/api"
 
-const G = "linear-gradient(135deg, #d946ef 0%, #f97316 100%)"
+const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
 const SCORE_COLORS = ["#f87171", "#fb923c", "#f59e0b", "#34d399", "#10b981"]
 
@@ -13,7 +14,7 @@ function ScoreBar({ score, max = 5 }) {
       {Array.from({ length: max }).map((_, i) => (
         <div key={i} style={{
           width: 20, height: 7, borderRadius: 4,
-          background: i < score ? color : "#2a2a42",
+          background: i < score ? color : "#1e2438",
           boxShadow: i < score ? `0 0 6px ${color}50` : "none",
           transition: "all 0.2s",
         }} />
@@ -26,8 +27,8 @@ function DimensionCard({ title, icon, items, narrative }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div style={{ border: "1px solid #2a2a42", borderRadius: 12,
-      background: "#14141f", marginBottom: 10, overflow: "hidden" }}>
+    <div style={{ border: "1px solid #1e2438", borderRadius: 12,
+      background: "#151922", marginBottom: 10, overflow: "hidden" }}>
       <div onClick={() => setExpanded(!expanded)}
         style={{ padding: "14px 16px", cursor: "pointer",
           display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -52,8 +53,8 @@ function DimensionCard({ title, icon, items, narrative }) {
       </div>
 
       {expanded && narrative && (
-        <div style={{ padding: "14px 16px", borderTop: "1px solid #2a2a42",
-          background: "#1a1a2e", fontSize: 13, color: "#8b89aa", lineHeight: 1.7 }}>
+        <div style={{ padding: "14px 16px", borderTop: "1px solid #1e2438",
+          background: "#131827", fontSize: 13, color: "#8b89aa", lineHeight: 1.7 }}>
           {narrative}
         </div>
       )}
@@ -66,8 +67,8 @@ function CoachingCard({ suggestion }) {
   const color = priorityColors[suggestion.priority] || "#8b89aa"
 
   return (
-    <div style={{ border: "1px solid #2a2a42", borderRadius: 12,
-      padding: 16, background: "#14141f", borderLeft: `3px solid ${color}` }}>
+    <div style={{ border: "1px solid #1e2438", borderRadius: 12,
+      padding: 16, background: "#151922", borderLeft: `3px solid ${color}` }}>
       <span style={{ fontSize: 11, fontWeight: 700, color,
         textTransform: "uppercase", letterSpacing: 0.5 }}>
         #{suggestion.priority} — {suggestion.area}
@@ -81,7 +82,7 @@ function CoachingCard({ suggestion }) {
         💡 {suggestion.suggestion}
       </div>
       <div style={{ fontSize: 12, color: "#8b89aa", lineHeight: 1.5,
-        padding: "10px 12px", background: "#1a1a2e", borderRadius: 8 }}>
+        padding: "10px 12px", background: "#131827", borderRadius: 8 }}>
         <strong style={{ color: "#f0eeff" }}>Why it matters:</strong> {suggestion.why_it_matters}
       </div>
     </div>
@@ -91,18 +92,18 @@ function CoachingCard({ suggestion }) {
 function ObservationCard({ obs, sessionId }) {
   const [resonance, setResonance] = useState(null)
   const signalColors = {
-    talk_ratio: "#818cf8", speech_rate: "#a78bfa",
+    talk_ratio: "#818cf8", speech_rate: "#5b9cf6",
     speech_acceleration: "#f472b6", pauses: "#f59e0b",
     interruptions: "#f87171", filler_words: "#fb923c",
-    vocal_energy: "#22d3ee", questions: "#34d399",
+    vocal_energy: "#0891b2", questions: "#34d399",
     monologue: "#818cf8", vocabulary_richness: "#a3e635",
-    silence_ratio: "#8b89aa", pitch: "#c084fc", engagement: "#2dd4bf"
+    silence_ratio: "#8b89aa", pitch: "#0891b2", engagement: "#5b9cf6"
   }
   const color = signalColors[obs.signal] || "#8b89aa"
 
   return (
-    <div style={{ border: "1px solid #2a2a42", borderRadius: 10,
-      padding: 16, background: "#14141f", borderLeft: `3px solid ${color}` }}>
+    <div style={{ border: "1px solid #1e2438", borderRadius: 10,
+      padding: 16, background: "#151922", borderLeft: `3px solid ${color}` }}>
       <div style={{ fontSize: 11, color, fontWeight: 600,
         textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>
         {obs.signal.replace(/_/g, " ")}
@@ -132,8 +133,8 @@ function ObservationCard({ obs, sessionId }) {
                   } catch {}
                 }
               }}
-                style={{ padding: "5px 14px", border: "1px solid #2a2a42",
-                  borderRadius: 20, background: "#1a1a2e", cursor: "pointer",
+                style={{ padding: "5px 14px", border: "1px solid #1e2438",
+                  borderRadius: 20, background: "#131827", cursor: "pointer",
                   fontSize: 12, color: "#8b89aa" }}>
                 {label}
               </button>
@@ -149,10 +150,10 @@ function ObservationCard({ obs, sessionId }) {
 
 function ReflectCard({ item, index }) {
   const [open, setOpen] = useState(false)
-  const accent = ["#818cf8", "#a78bfa", "#c084fc"][index % 3]
+  const accent = ["#818cf8", "#5b9cf6", "#0891b2"][index % 3]
   return (
-    <div style={{ border: "1px solid #2a2a42", borderRadius: 12,
-      background: "#14141f", overflow: "hidden", cursor: "pointer" }}
+    <div style={{ border: "1px solid #1e2438", borderRadius: 12,
+      background: "#151922", overflow: "hidden", cursor: "pointer" }}
       onClick={() => setOpen(v => !v)}>
       <div style={{ padding: "16px 18px", display: "flex",
         justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -169,8 +170,8 @@ function ReflectCard({ item, index }) {
         </span>
       </div>
       {open && (
-        <div style={{ padding: "14px 18px", borderTop: "1px solid #2a2a42",
-          background: "#1a1a2e" }}>
+        <div style={{ padding: "14px 18px", borderTop: "1px solid #1e2438",
+          background: "#131827" }}>
           <p style={{ margin: 0, fontSize: 13, color: "#8b89aa", lineHeight: 1.7 }}>
             {item.answer}
           </p>
@@ -202,7 +203,7 @@ export default function ResultsView({ results, onBack }) {
   const [activeTab, setActiveTab] = useState("overview")
 
   const { signals, insights, dimensions, filename, detected_speaker,
-          session_id, voiceprint_confidence, transcript } = liveResults
+          session_id, voiceprint_confidence, fingerprint } = liveResults
 
   const confPct = voiceprint_confidence != null ? Math.round(voiceprint_confidence * 100) : null
   const confLabel = confPct == null ? null : confPct >= 55 ? "high" : confPct >= 40 ? "medium" : "low"
@@ -232,7 +233,7 @@ export default function ResultsView({ results, onBack }) {
     }
   }
 
-  const tabs = ["overview", "dimensions", "coaching", "reflect", "signals", "transcript"]
+  const tabs = ["overview", "dimensions", "coaching", "reflect", "signals", "summary"]
   const otherSpeakers = (liveResults.available_speakers || []).filter(s => s !== detected_speaker)
 
   return (
@@ -258,21 +259,21 @@ export default function ResultsView({ results, onBack }) {
         {otherSpeakers.length > 0 && (
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowSpeakerSwitch(v => !v)}
-              style={{ fontSize: 12, color: "#8b89aa", background: "#14141f",
-                border: "1px solid #2a2a42", borderRadius: 20,
+              style={{ fontSize: 12, color: "#8b89aa", background: "#151922",
+                border: "1px solid #1e2438", borderRadius: 20,
                 padding: "3px 12px", cursor: "pointer" }}>
               {reanalyzing ? "Switching…" : "Not you?"}
             </button>
             {showSpeakerSwitch && !reanalyzing && (
               <div style={{ position: "absolute", right: 0, top: "110%",
-                background: "#14141f", border: "1px solid #2a2a42", borderRadius: 10,
+                background: "#151922", border: "1px solid #1e2438", borderRadius: 10,
                 boxShadow: "0 8px 24px rgba(0,0,0,0.6)", zIndex: 10,
                 minWidth: 160, overflow: "hidden" }}>
                 {otherSpeakers.map(s => (
                   <button key={s} onClick={() => handleReanalyze(s)}
                     style={{ display: "block", width: "100%", padding: "10px 14px",
                       textAlign: "left", background: "none", border: "none",
-                      borderBottom: "1px solid #2a2a42",
+                      borderBottom: "1px solid #1e2438",
                       cursor: "pointer", fontSize: 13, color: "#f0eeff" }}>
                     Switch to {speakerLabel(s)}
                   </button>
@@ -304,15 +305,14 @@ export default function ResultsView({ results, onBack }) {
       )}
 
       {/* Tabs */}
-      <div style={{ display: "flex", marginBottom: 20, borderBottom: "1px solid #2a2a42" }}>
+      <div style={{ display: "flex", marginBottom: 20, borderBottom: "1px solid #1e2438" }}>
         {tabs.map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`nav-tab${activeTab === tab ? " active" : ""}`}
             style={{ background: "none", border: "none", cursor: "pointer",
               padding: "8px 14px", fontSize: 13, textTransform: "capitalize",
               fontWeight: activeTab === tab ? 600 : 400,
-              color: activeTab === tab ? "#e879f9" : "#8b89aa",
-              borderBottom: activeTab === tab ? "2px solid #e879f9" : "2px solid transparent",
-              transition: "color 0.15s" }}>
+              color: activeTab === tab ? "#5b9cf6" : "#8b89aa" }}>
             {tab}
           </button>
         ))}
@@ -320,7 +320,7 @@ export default function ResultsView({ results, onBack }) {
 
       {/* ── OVERVIEW TAB ── */}
       {activeTab === "overview" && (
-        <div>
+        <Reveal>
           {/* Type chips */}
           {(() => {
             const types = insights.conversation_types || []
@@ -332,9 +332,9 @@ export default function ResultsView({ results, onBack }) {
                   <span key={t} style={{
                     fontSize: 11, fontWeight: i === 0 ? 700 : 500,
                     padding: "3px 10px", borderRadius: 20,
-                    background: i === 0 ? "rgba(217,70,239,0.12)" : "#1a1a2e",
-                    color: i === 0 ? "#e879f9" : "#8b89aa",
-                    border: `1px solid ${i === 0 ? "rgba(217,70,239,0.3)" : "#2a2a42"}`,
+                    background: i === 0 ? "rgba(29,78,216,0.12)" : "#131827",
+                    color: i === 0 ? "#5b9cf6" : "#8b89aa",
+                    border: `1px solid ${i === 0 ? "rgba(29,78,216,0.3)" : "#1e2438"}`,
                     textTransform: "uppercase", letterSpacing: 0.4,
                   }}>
                     {LABELS[t] || t}
@@ -362,11 +362,11 @@ export default function ResultsView({ results, onBack }) {
 
           {/* Notable pattern — promoted to headline position */}
           {insights.notable_pattern && (
-            <div style={{ background: "rgba(217,70,239,0.06)",
-              border: "1px solid rgba(217,70,239,0.2)",
+            <div style={{ background: "rgba(29,78,216,0.06)",
+              border: "1px solid rgba(29,78,216,0.2)",
               borderRadius: 10, padding: 16, marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 600,
-                color: "#e879f9", marginBottom: 6,
+                color: "#5b9cf6", marginBottom: 6,
                 textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Notable Pattern
               </div>
@@ -377,9 +377,9 @@ export default function ResultsView({ results, onBack }) {
           )}
 
           {/* Communication Pattern */}
-          <div style={{ background: "#14141f", borderRadius: 12,
-            padding: 18, marginBottom: 16, borderLeft: "3px solid #d946ef" }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#e879f9",
+          <div style={{ background: "#151922", borderRadius: 12,
+            padding: 18, marginBottom: 16, borderLeft: "3px solid #1d4ed8" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#5b9cf6",
               marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Communication Pattern
             </div>
@@ -413,7 +413,7 @@ export default function ResultsView({ results, onBack }) {
               { label: "Fillers", value: `${signals.filler_words.rate_per_100_words}`, unit: "/100w" },
             ].map(({ label, value, unit }) => (
               <div key={label} style={{ textAlign: "center", padding: "16px 8px",
-                border: "1px solid #2a2a42", borderRadius: 10, background: "#14141f" }}>
+                border: "1px solid #1e2438", borderRadius: 10, background: "#151922" }}>
                 <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 6 }}>{label}</div>
                 <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1,
                   background: G, WebkitBackgroundClip: "text",
@@ -436,7 +436,7 @@ export default function ResultsView({ results, onBack }) {
                   ? "—" : signals.vocal_energy.trend },
             ].map(({ label, value }) => (
               <div key={label} style={{ textAlign: "center", padding: "14px 8px",
-                border: "1px solid #2a2a42", borderRadius: 10, background: "#14141f" }}>
+                border: "1px solid #1e2438", borderRadius: 10, background: "#151922" }}>
                 <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 5 }}>{label}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#f0eeff",
                   textTransform: "capitalize" }}>{value}</div>
@@ -444,15 +444,15 @@ export default function ResultsView({ results, onBack }) {
             ))}
           </div>
 
-        </div>
+        </Reveal>
       )}
 
       {/* ── DIMENSIONS TAB ── */}
       {activeTab === "dimensions" && dimensions && (
-        <div>
+        <Reveal>
           <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 16, lineHeight: 1.6 }}>
             Scores are probabilistic proxies based on behavioral signals —
-            not psychological diagnoses. Tap any card to read the interpretation.
+            not psychological diagnoses. Expand any card to read the interpretation.
           </p>
           {dimensions.emotional_state && (
             <DimensionCard title="Your Emotional State" icon="🧠"
@@ -490,8 +490,8 @@ export default function ResultsView({ results, onBack }) {
 
           {/* Conversation Arc — moved from Overview */}
           {dimensions?.conversation_arc && (
-            <div style={{ border: "1px solid #2a2a42", borderRadius: 12,
-              padding: 16, background: "#14141f" }}>
+            <div style={{ border: "1px solid #1e2438", borderRadius: 12,
+              padding: 16, background: "#151922" }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#8b89aa",
                 marginBottom: 14, textTransform: "uppercase", letterSpacing: 0.5 }}>
                 Conversation Arc
@@ -512,7 +512,7 @@ export default function ResultsView({ results, onBack }) {
               </div>
               {dimensions.conversation_arc.turning_point?.detected && (
                 <div style={{ marginTop: 12, fontSize: 12, color: "#8b89aa",
-                  background: "#1a1a2e", padding: "8px 12px", borderRadius: 8 }}>
+                  background: "#131827", padding: "8px 12px", borderRadius: 8 }}>
                   ⚡ {dimensions.conversation_arc.turning_point.detail}
                 </div>
               )}
@@ -524,19 +524,21 @@ export default function ResultsView({ results, onBack }) {
               )}
             </div>
           )}
-        </div>
+        </Reveal>
       )}
 
       {/* ── COACHING TAB ── */}
       {activeTab === "coaching" && (
-        <div>
+        <Reveal>
           <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 16, lineHeight: 1.6 }}>
             Specific suggestions based on patterns observed in this conversation.
             Ranked by potential impact.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {insights.coaching_suggestions?.map((s, i) => (
-              <CoachingCard key={i} suggestion={s} />
+              <RevealItem key={i} index={i}>
+                <CoachingCard suggestion={s} />
+              </RevealItem>
             ))}
             {(!insights.coaching_suggestions || insights.coaching_suggestions.length === 0) && (
               <div style={{ textAlign: "center", padding: 32, color: "#4a4865" }}>
@@ -544,12 +546,12 @@ export default function ResultsView({ results, onBack }) {
               </div>
             )}
           </div>
-        </div>
+        </Reveal>
       )}
 
       {/* ── REFLECT TAB ── */}
       {activeTab === "reflect" && (
-        <div>
+        <Reveal>
           <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 20, lineHeight: 1.6 }}>
             Questions grounded in what happened in this conversation. Tap any to read the insight.
           </p>
@@ -566,39 +568,41 @@ export default function ResultsView({ results, onBack }) {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {insights.reflection_questions.map((item, i) => (
-                <ReflectCard key={i} item={item} index={i} />
+                <RevealItem key={i} index={i}>
+                  <ReflectCard item={item} index={i} />
+                </RevealItem>
               ))}
             </div>
           )}
-        </div>
+        </Reveal>
       )}
 
       {/* ── SIGNALS TAB ── */}
       {activeTab === "signals" && (
-        <div>
+        <Reveal>
           {signals.timeline?.length > 1 && (
             <div style={{ marginBottom: 24 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#f0eeff" }}>
                 Speech Rate Over Time
               </h3>
-              <div style={{ background: "#14141f", border: "1px solid #2a2a42",
+              <div style={{ background: "#151922", border: "1px solid #1e2438",
                 borderRadius: 10, padding: 16 }}>
                 <ResponsiveContainer width="100%" height={150}>
                   <LineChart data={signals.timeline}>
                     <XAxis dataKey="window_start_s" tickFormatter={formatTime} fontSize={11}
-                      tick={{ fill: "#8b89aa" }} axisLine={{ stroke: "#2a2a42" }}
-                      tickLine={{ stroke: "#2a2a42" }} />
+                      tick={{ fill: "#8b89aa" }} axisLine={{ stroke: "#1e2438" }}
+                      tickLine={{ stroke: "#1e2438" }} />
                     <YAxis domain={["auto", "auto"]} fontSize={11} width={35}
-                      tick={{ fill: "#8b89aa" }} axisLine={{ stroke: "#2a2a42" }}
-                      tickLine={{ stroke: "#2a2a42" }} />
+                      tick={{ fill: "#8b89aa" }} axisLine={{ stroke: "#1e2438" }}
+                      tickLine={{ stroke: "#1e2438" }} />
                     <Tooltip
-                      contentStyle={{ background: "#14141f", border: "1px solid #2a2a42",
+                      contentStyle={{ background: "#151922", border: "1px solid #1e2438",
                         borderRadius: 8 }}
                       labelStyle={{ color: "#8b89aa" }} itemStyle={{ color: "#f0eeff" }}
                       labelFormatter={v => `At ${formatTime(v)}`}
                       formatter={v => [`${Math.round(v)} wpm`, "Speech rate"]} />
                     <Line type="monotone" dataKey="speech_rate_wpm"
-                      stroke="#d946ef" strokeWidth={2} dot={false} />
+                      stroke="#1d4ed8" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -624,62 +628,51 @@ export default function ResultsView({ results, onBack }) {
               { label: "Within-turn pauses", value: signals.pauses.within_turn_pauses.count },
               { label: "Your turns", value: signals.turn_dynamics.user_turns },
             ].map(({ label, value }) => (
-              <div key={label} style={{ padding: 12, border: "1px solid #2a2a42",
-                borderRadius: 8, background: "#14141f" }}>
+              <div key={label} style={{ padding: 12, border: "1px solid #1e2438",
+                borderRadius: 8, background: "#151922" }}>
                 <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 4 }}>{label}</div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: "#f0eeff" }}>{value}</div>
               </div>
             ))}
           </div>
-        </div>
+        </Reveal>
       )}
 
-      {/* ── TRANSCRIPT TAB ── */}
-      {activeTab === "transcript" && (
-        <div>
-          {(!transcript || transcript.length === 0) ? (
-            <div style={{ textAlign: "center", padding: 48, color: "#4a4865" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
-              <p style={{ fontSize: 14, color: "#8b89aa" }}>
-                Transcript not available for this session.
+      {/* ── SUMMARY TAB ── */}
+      {activeTab === "summary" && (
+        <Reveal>
+          <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 16, lineHeight: 1.6 }}>
+            A compact behavioral summary of this session — used to build your cross-session profile over time.
+          </p>
+          {fingerprint ? (
+            <div style={{ background: "#151922", border: "1px solid #1e2438",
+              borderRadius: 12, padding: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#4a4865",
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
+                Behavioral Fingerprint
+              </div>
+              <p style={{ margin: 0, fontSize: 14, color: "#d4d2e8", lineHeight: 1.85 }}>
+                {fingerprint}
               </p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              {transcript.map((seg, i) => {
-                const isUser = seg.speaker === detected_speaker
-                return (
-                  <div key={i} style={{
-                    display: "flex", gap: 12, padding: "8px 12px", borderRadius: 8,
-                    background: isUser ? "rgba(217,70,239,0.06)" : "#14141f",
-                    border: `1px solid ${isUser ? "rgba(217,70,239,0.18)" : "#2a2a42"}`,
-                  }}>
-                    <div style={{ minWidth: 72, flexShrink: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600,
-                        color: isUser ? "#e879f9" : "#8b89aa" }}>
-                        {isUser ? "You" : speakerLabel(seg.speaker)}
-                      </div>
-                      <div style={{ fontSize: 10, color: "#4a4865", marginTop: 1 }}>
-                        {seg.start != null
-                          ? `${Math.floor(seg.start / 60)}:${String(Math.round(seg.start % 60)).padStart(2, "0")}`
-                          : ""}
-                      </div>
-                    </div>
-                    <p style={{ margin: 0, fontSize: 13, color: "#f0eeff", lineHeight: 1.6 }}>
-                      {seg.text}
-                    </p>
-                  </div>
-                )
-              })}
+            <div style={{ textAlign: "center", padding: 48, color: "#4a4865" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
+              <p style={{ fontSize: 14, color: "#8b89aa" }}>
+                Summary not available for this session.
+              </p>
+              <p style={{ fontSize: 12, color: "#4a4865", marginTop: 4 }}>
+                New sessions will include this automatically.
+              </p>
             </div>
           )}
-        </div>
+        </Reveal>
       )}
 
       {/* Disclaimer */}
       <div style={{ fontSize: 11, color: "#4a4865", padding: 14, marginTop: 20,
-        background: "#14141f", borderRadius: 8, lineHeight: 1.7,
-        border: "1px solid #2a2a42" }}>
+        background: "#151922", borderRadius: 8, lineHeight: 1.7,
+        border: "1px solid #1e2438" }}>
         <strong style={{ color: "#8b89aa" }}>Note:</strong> All scores and observations are
         probabilistic proxies based on acoustic and linguistic patterns. They are not validated
         psychological assessments. Use as prompts for self-reflection only.

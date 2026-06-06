@@ -1,14 +1,17 @@
 import { useState, useEffect } from "react"
 import api from "../lib/api"
+import Reveal from "./Reveal"
 
 const CONTEXT_LABELS = {
-  social: "Social", collaborative: "Collaborative", evaluative: "Evaluative",
-  influential: "Influential", negotiation: "Negotiation", adversarial: "Adversarial",
-  developmental: "Developmental", support: "Support", intimate: "Intimate",
-  casual: "Casual", meeting: "Meeting", job_interview: "Job Interview",
-  disagreement: "Disagreement", presentation: "Presentation",
-  sales_call: "Sales Call", feedback_conversation: "Feedback",
-  coaching_call: "Coaching", first_date: "First Date",
+  social: "Casual & Low-Stakes", collaborative: "Collaborative",
+  evaluative: "Interview & Review · High Stakes", influential: "Persuading & Pitching",
+  negotiation: "Negotiation", adversarial: "Conflict & Friction",
+  developmental: "Coaching & Feedback", support: "Supportive Listening",
+  intimate: "Deep Personal", casual: "Casual & Low-Stakes", meeting: "Meeting",
+  job_interview: "Interview & Review · High Stakes", disagreement: "Conflict & Friction",
+  presentation: "Interview & Review · High Stakes", sales_call: "Persuading & Pitching",
+  feedback_conversation: "Coaching & Feedback", coaching_call: "Coaching & Feedback",
+  first_date: "Deep Personal",
 }
 
 const SCORE_COLORS = ["#f87171", "#fb923c", "#f59e0b", "#34d399", "#10b981"]
@@ -21,7 +24,7 @@ function MiniScoreBar({ score }) {
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} style={{
           width: 10, height: 4, borderRadius: 2,
-          background: i < score ? color : "#2a2a42",
+          background: i < score ? color : "#1e2438",
         }} />
       ))}
     </div>
@@ -94,9 +97,9 @@ export default function HistoryView({ onSelect, active = false }) {
               <button key={ctx} onClick={() => setContextFilter(ctx)}
                 style={{ padding: "4px 12px", borderRadius: 20, fontSize: 11,
                   cursor: "pointer", fontWeight: isActive ? 600 : 400,
-                  background: isActive ? "rgba(217,70,239,0.12)" : "#14141f",
-                  color: isActive ? "#e879f9" : "#8b89aa",
-                  border: isActive ? "1px solid rgba(217,70,239,0.3)" : "1px solid #2a2a42",
+                  background: isActive ? "rgba(29,78,216,0.12)" : "#151922",
+                  color: isActive ? "#5b9cf6" : "#8b89aa",
+                  border: isActive ? "1px solid rgba(29,78,216,0.3)" : "1px solid #1e2438",
                   transition: "all 0.15s" }}>
                 {ctx === "all" ? "All" : (CONTEXT_LABELS[ctx] || ctx)}
               </button>
@@ -106,7 +109,7 @@ export default function HistoryView({ onSelect, active = false }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {filtered.map(s => {
+        {filtered.map((s, i) => {
           const dims = s.dimensions || {}
           const dimSummary = [
             { label: "Emotional", score: dims.emotional_state?.confidence?.score },
@@ -116,17 +119,10 @@ export default function HistoryView({ onSelect, active = false }) {
           const sessionTypes = getTypes(s)
 
           return (
-            <div key={s.session_id}
-              style={{ border: "1px solid #2a2a42", borderRadius: 12, padding: 16,
-                background: "#14141f", transition: "border-color 0.15s, background 0.15s" }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = "#3d3d60"
-                e.currentTarget.style.background = "#1a1a2e"
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = "#2a2a42"
-                e.currentTarget.style.background = "#14141f"
-              }}>
+            <Reveal key={s.session_id} delay={Math.min(i * 80, 280)}>
+            <div className="card"
+              style={{ border: "1px solid #1e2438", borderRadius: 12, padding: 16,
+                background: "#151922", boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
 
               <div onClick={() => onSelect({
                 signals: s.signals, insights: s.insights,
@@ -136,7 +132,7 @@ export default function HistoryView({ onSelect, active = false }) {
                 speaker_confirmed: s.speaker_confirmed || false,
                 session_id: s.session_id,
                 available_speakers: s.available_speakers || [],
-                transcript: s.transcript || [],
+                fingerprint: s.fingerprint || null,
               })} style={{ cursor: "pointer" }}>
 
                 {/* Top row */}
@@ -146,10 +142,10 @@ export default function HistoryView({ onSelect, active = false }) {
                     {sessionTypes.map((t, i) => (
                       <span key={t} style={{
                         fontSize: 11, fontWeight: i === 0 ? 700 : 500,
-                        color: i === 0 ? "#e879f9" : "#8b89aa",
+                        color: i === 0 ? "#5b9cf6" : "#8b89aa",
                         textTransform: "uppercase", letterSpacing: 0.4,
-                        background: i === 0 ? "rgba(217,70,239,0.1)" : "#1a1a2e",
-                        border: `1px solid ${i === 0 ? "rgba(217,70,239,0.25)" : "#2a2a42"}`,
+                        background: i === 0 ? "rgba(29,78,216,0.1)" : "#131827",
+                        border: `1px solid ${i === 0 ? "rgba(29,78,216,0.25)" : "#1e2438"}`,
                         padding: "2px 8px", borderRadius: 4,
                       }}>
                         {CONTEXT_LABELS[t] || t}
@@ -188,7 +184,7 @@ export default function HistoryView({ onSelect, active = false }) {
                 {/* Dimension score bars */}
                 {dimSummary.length > 0 && (
                   <div style={{ display: "flex", gap: 18, paddingTop: 10,
-                    borderTop: "1px solid #2a2a42" }}>
+                    borderTop: "1px solid #1e2438" }}>
                     {dimSummary.map(({ label, score }) => (
                       <div key={label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <span style={{ fontSize: 10, color: "#4a4865" }}>{label}</span>
@@ -200,7 +196,7 @@ export default function HistoryView({ onSelect, active = false }) {
               </div>
 
               {/* Delete controls */}
-              <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #2a2a42",
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1e2438",
                 display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
                 {confirmDeleteId === s.session_id ? (
                   <>
@@ -227,18 +223,21 @@ export default function HistoryView({ onSelect, active = false }) {
                 )}
               </div>
             </div>
+            </Reveal>
           )
         })}
       </div>
 
       {sessions.length >= 3 && (
-        <div style={{ marginTop: 20, padding: 14,
-          background: "rgba(52,211,153,0.06)",
-          border: "1px solid rgba(52,211,153,0.2)",
-          borderRadius: 10, fontSize: 13, color: "#34d399" }}>
-          ✨ {sessions.length} sessions recorded — your behavioral profile is active.
-          Check the Profile tab.
-        </div>
+        <Reveal>
+          <div style={{ marginTop: 20, padding: 14,
+            background: "rgba(52,211,153,0.06)",
+            border: "1px solid rgba(52,211,153,0.2)",
+            borderRadius: 10, fontSize: 13, color: "#34d399" }}>
+            ✨ {sessions.length} sessions recorded — your behavioral profile is active.
+            Check the Profile tab.
+          </div>
+        </Reveal>
       )}
     </div>
   )

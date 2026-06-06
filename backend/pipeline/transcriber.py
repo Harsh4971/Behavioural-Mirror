@@ -1,109 +1,77 @@
-import whisper
-import subprocess
 import os
+import subprocess
+from groq import Groq
+
 
 class Transcriber:
-    def __init__(self, model_size="base"):
-        print(f"Loading Whisper model: {model_size}")
-        self.model = whisper.load_model(model_size)
-        print("Whisper model loaded.")
-
-    def convert_to_wav(self, audio_path: str) -> str:
-        """Convert any audio format to WAV using ffmpeg."""
-        wav_path = audio_path.replace(".m4a", ".wav").replace(".mp3", ".wav").replace(".mp4", ".wav")
-        if wav_path == audio_path:
-            wav_path = audio_path + ".wav"
-
-        subprocess.run([
-            "ffmpeg", "-i", audio_path,
-            "-ar", "16000",
-            "-ac", "1",
-            "-y", wav_path
-        ], capture_output=True)
-
-        return wav_path
+    def __init__(self, api_key: str):
+        self.client = Groq(api_key=api_key)
+        print("Groq Whisper transcriber ready.")
 
     def transcribe(self, audio_path: str) -> dict:
-        print(f"Transcribing: {audio_path}")
+        print(f"Transcribing via Groq Whisper large-v3: {audio_path}")
 
-        # Convert to WAV if needed
-        if not audio_path.endswith(".wav"):
-            print("Converting to WAV...")
-            wav_path = self.convert_to_wav(audio_path)
-        else:
-            wav_path = audio_path
-
-        result = self.model.transcribe(
-            wav_path,
-            word_timestamps=True,
-            verbose=False
+        # WAV at 16kHz mono can be ~37MB for a 20-min session, exceeding Groq's 25MB limit.
+        # Convert to MP3 at 64kbps (~9MB for 20 min) before uploading.
+        mp3_path = audio_path.rsplit(".", 1)[0] + "_upload.mp3"
+        subprocess.run(
+            ["ffmpeg", "-i", audio_path, "-ar", "16000", "-ac", "1",
+             "-b:a", "64k", "-y", mp3_path],
+            capture_output=True
         )
 
-        # Clean up converted file
-        if wav_path != audio_path and os.path.exists(wav_path):
-            os.remove(wav_path)
+        try:
+            with open(mp3_path, "rb") as f:
+                response = self.client.audio.transcriptions.create(
+                    file=(os.path.basename(mp3_path), f),
+                    model="whisper-large-v3",
+                    response_format="verbose_json",
+                    timestamp_granularities=["word", "segment"],
+                    temperature=0.0,
+                )
+        finally:
+            if os.path.exists(mp3_path):
+                os.remove(mp3_path)
 
+        # Groq verbose_json returns words at top level (not nested in segments).
+        # Map each word into its parent segment by timestamp overlap.
+        raw_words = getattr(response, "words", None) or []
+        if raw_words and isinstance(raw_words[0], dict):
+            word_list = [
+                {"word": w["word"], "start": round(w["start"], 3),
+                 "end": round(w["end"], 3), "score": 1.0}
+                for w in raw_words
+            ]
+        else:
+            word_list = [
+                {"word": w.word, "start": round(w.start, 3),
+                 "end": round(w.end, 3), "score": 1.0}
+                for w in raw_words
+            ]
+
+        raw_segments = getattr(response, "segments", None) or []
         segments = []
-        for seg in result["segments"]:
-            words = []
-            for w in seg.get("words", []):
-                words.append({
-                    "word": w["word"].strip(),
-                    "start": round(w["start"], 3),
-                    "end": round(w["end"], 3),
-                    "score": round(w.get("probability", 0), 3)
-                })
+        for seg in raw_segments:
+            if isinstance(seg, dict):
+                s_start, s_end, s_text = seg["start"], seg["end"], seg["text"]
+            else:
+                s_start, s_end, s_text = seg.start, seg.end, seg.text
 
+            seg_words = [
+                w for w in word_list
+                if w["start"] >= s_start - 0.05 and w["start"] < s_end + 0.05
+            ]
             segments.append({
-                "start": round(seg["start"], 3),
-                "end": round(seg["end"], 3),
-                "text": seg["text"].strip(),
-                "words": words
+                "start": round(s_start, 3),
+                "end": round(s_end, 3),
+                "text": s_text.strip(),
+                "words": seg_words,
             })
+
+        detected_language = getattr(response, "language", "unknown")
+        print(f"Detected language: {detected_language}")
 
         return {
             "segments": segments,
-            "language": result.get("language", "en")
+            "language": detected_language,
         }
-
-
-
-# import whisper
-# import json
-
-# class Transcriber:
-#     def __init__(self, model_size="base"):
-#         print(f"Loading Whisper model: {model_size}")
-#         self.model = whisper.load_model(model_size)
-#         print("Whisper model loaded.")
-
-#     def transcribe(self, audio_path: str) -> dict:
-#         print(f"Transcribing: {audio_path}")
-#         result = self.model.transcribe(
-#             audio_path,
-#             word_timestamps=True,
-#             verbose=False
-#         )
-
-#         segments = []
-#         for seg in result["segments"]:
-#             words = []
-#             for w in seg.get("words", []):
-#                 words.append({
-#                     "word": w["word"].strip(),
-#                     "start": round(w["start"], 3),
-#                     "end": round(w["end"], 3),
-#                     "score": round(w.get("probability", 0), 3)
-#                 })
-
-#             segments.append({
-#                 "start": round(seg["start"], 3),
-#                 "end": round(seg["end"], 3),
-#                 "text": seg["text"].strip(),
-#                 "words": words
-#             })
-
-#         return {
-#             "segments": segments,
-#             "language": result.get("language", "en")
-#         }

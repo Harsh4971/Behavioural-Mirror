@@ -19,18 +19,27 @@ from pipeline.dimension_scorer import DimensionScorer
 from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.personality_synthesizer import PersonalitySynthesizer
+from pipeline.mirror_feed_synthesizer import MirrorFeedSynthesizer
 from db.database import supabase_admin
 
 app = FastAPI()
 
+_ALLOWED_ORIGINS = [o for o in [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    os.getenv("FRONTEND_URL", ""),
+] if o]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
-UPLOAD_DIR = "/tmp/behavioral_mirror"
+UPLOAD_DIR = "/tmp/mirror"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # In-memory store for prepare → finalize handoff.
@@ -56,18 +65,20 @@ def _cleanup_stale_cache():
         del _prepare_cache[sid]
 
 
-print("Loading models... this may take a minute on first run.")
-transcriber = Transcriber(model_size="small")
+print("Loading models...")
+transcriber = Transcriber(api_key=os.getenv("GROQ_API_KEY"))
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
 context_detector = ContextDetector(api_key=os.getenv("GROQ_API_KEY"))
 dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
 personality_synth = PersonalitySynthesizer(api_key=os.getenv("GROQ_API_KEY"))
+mirror_feed_synth = MirrorFeedSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 print("All models loaded. Server ready.")
 
-# In-memory personality cache: key = "{user_id}:{session_count}"
-_personality_cache: dict = {}
+# In-memory caches — cleared on server restart, Supabase is the durable layer
+_personality_cache: dict = {}   # key = "{user_id}:{session_count}:v{version}"
+_mirror_feed_cache: dict = {}   # key = "{user_id}:{session_count}"
 
 
 CONTEXT_POPULATION_NORMS: dict = {
@@ -155,33 +166,33 @@ def _compute_dim_averages(parsed: list) -> dict:
 
 
 _CONTEXT_BLIND_SPOTS: dict = {
-    "evaluative":    (1, "High-stakes settings",
-        "You've never uploaded an interview, presentation, or review. Your confidence and "
-        "composure scores are based on lower-stakes conversations — they may look very "
-        "different when you're being assessed."),
-    "adversarial":   (2, "Conflict & pushback",
+    "evaluative":    (1, "Interview & Review · High Stakes",
+        "No interview, presentation, or review recordings yet. Your confidence and "
+        "composure scores are built from lower-stakes conversations — they may shift "
+        "significantly when you're being assessed."),
+    "adversarial":   (2, "Conflict & Friction",
         "No conflict or disagreement recordings yet. We can't tell how you respond when "
         "challenged or when there's real friction in the room."),
-    "collaborative": (3, "Group & team dynamics",
+    "collaborative": (3, "Collaborative",
         "No team meetings or brainstorming sessions uploaded. Your listening and "
         "assertiveness scores come from 1-on-1 conversations only."),
-    "influential":   (4, "Persuasion & pitching",
-        "No pitch or sales conversations yet. We can't see how you hold an argument or "
-        "move someone toward a decision."),
+    "influential":   (4, "Persuading & Pitching",
+        "No pitch or persuasion conversations yet. We can't see how you hold an argument "
+        "or move someone toward a decision."),
     "negotiation":   (5, "Negotiation",
-        "No negotiation recordings. How your composure and assertiveness hold under "
+        "No negotiation recordings yet. How your composure and assertiveness hold under "
         "competing interests is still unmeasured."),
-    "developmental": (6, "Giving feedback",
+    "developmental": (6, "Coaching & Feedback",
         "No coaching or feedback sessions recorded. We can't see how you structure or "
-        "deliver criticism."),
-    "support":       (7, "Empathy-led listening",
+        "deliver guidance to others."),
+    "support":       (7, "Supportive Listening",
         "No support conversations yet. Your empathy dimension has no direct evidence."),
-    "intimate":      (8, "Deep personal conversations",
-        "No emotionally intimate conversations uploaded. Your expressiveness score may "
-        "be incomplete."),
-    "social":        (9, "Casual & social",
-        "No casual social conversations recorded. We can't see your natural, low-stakes "
-        "communication style yet."),
+    "intimate":      (8, "Deep Personal",
+        "No emotionally open conversations uploaded. Your expressiveness and warmth "
+        "scores may be incomplete."),
+    "social":        (9, "Casual & Low-Stakes",
+        "No casual social conversations recorded. We can't see your natural, "
+        "low-pressure communication style yet."),
 }
 
 
@@ -219,28 +230,6 @@ def _compute_session_delta(old: dict, new: dict) -> dict | None:
     return {"changes": changes[:3]}
 
 
-def _extract_mirror_highlights(insights: dict, n: int = 3) -> list:
-    """Pull the N most significant observations from a session's insights."""
-    highlights = []
-
-    if insights.get("notable_pattern"):
-        highlights.append(insights["notable_pattern"])
-
-    for s in insights.get("coaching_suggestions", []):
-        if len(highlights) >= n:
-            break
-        issue = (s.get("issue") or "").strip()
-        if issue and issue not in highlights:
-            highlights.append(issue)
-
-    for obs in insights.get("observations", []):
-        if len(highlights) >= n:
-            break
-        text = (obs.get("observation") or "").strip()
-        if text and text not in highlights:
-            highlights.append(text)
-
-    return highlights[:n]
 
 
 def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
@@ -259,23 +248,6 @@ def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
             except (KeyError, TypeError):
                 pass
 
-        # Extract 2-3 sample user quotes (5-20 words, spread across the conversation)
-        sample_quotes = []
-        merged = p.get("merged", [])
-        detected_speaker = p.get("detected_speaker", "SPEAKER_00")
-        if merged:
-            user_turns = [
-                seg.get("text", "").strip()
-                for seg in merged
-                if seg.get("speaker") == detected_speaker
-                and 5 <= len(seg.get("text", "").split()) <= 20
-            ]
-            if len(user_turns) >= 3:
-                mid = len(user_turns) // 2
-                sample_quotes = [user_turns[0], user_turns[mid], user_turns[-1]]
-            elif user_turns:
-                sample_quotes = user_turns[:3]
-
         sessions.append({
             "date":            date_str,
             "context":         p["context"],
@@ -283,7 +255,7 @@ def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
             "filler_rate":     p["sig"]["filler_words"]["rate_per_100_words"],
             "talk_ratio_pct":  round(p["sig"]["talk_ratio"]["user_ratio"] * 100),
             "notable_pattern": p["ins"].get("notable_pattern", ""),
-            "sample_quotes":   sample_quotes,
+            "fingerprint":     p.get("fingerprint") or "",
         })
     return sessions
 
@@ -291,7 +263,7 @@ def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
 def _get_or_synthesize_personality(user_id: str, session_count: int,
                                    profile_data: dict, dim_averages: dict,
                                    sessions_data: list = None) -> dict:
-    _SYNTHESIS_VERSION = 4  # bump when prompt changes to invalidate old cache
+    _SYNTHESIS_VERSION = 5  # bump when prompt changes to invalidate old cache
     cache_key = f"{user_id}:{session_count}:v{_SYNTHESIS_VERSION}"
 
     if cache_key in _personality_cache:
@@ -306,13 +278,17 @@ def _get_or_synthesize_personality(user_id: str, session_count: int,
             .eq("user_id", user_id).execute()
         if result.data:
             row = result.data[0]
-            if row["session_count_at_synthesis"] == session_count * _SYNTHESIS_VERSION:
-                personality = json.loads(row["personality_json"])
+            raw_pj = row.get("personality_json")
+            if raw_pj and row.get("session_count_at_synthesis") == session_count * _SYNTHESIS_VERSION:
+                personality = json.loads(raw_pj)
                 _personality_cache[cache_key] = personality
                 return personality
-            else:
-                # Session count changed — preserve old synthesis for delta
-                old_personality = json.loads(row["personality_json"])
+            elif raw_pj:
+                # Session count changed — preserve old synthesis for delta calculation
+                try:
+                    old_personality = json.loads(raw_pj)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -356,7 +332,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> str:
 
 @app.get("/")
 def root():
-    return {"status": "Behavioral Mirror API is running"}
+    return {"status": "mirror. API is running"}
 
 
 # ── SSE Step 1: Start prepare job ────────────────────────────────
@@ -382,6 +358,16 @@ async def start_prepare_session(
         capture_output=True
     )
     os.remove(temp_path)
+
+    import wave
+    with wave.open(audio_path, "r") as _wf:
+        _duration_s = _wf.getnframes() / _wf.getframerate()
+    if _duration_s > 1200:
+        os.remove(audio_path)
+        raise HTTPException(
+            status_code=400,
+            detail="Recording exceeds the 20-minute limit. Please trim and re-upload."
+        )
 
     job_q: stdlib_queue.Queue = stdlib_queue.Queue()
     _jobs[session_id] = job_q
@@ -627,31 +613,34 @@ def _run_finalize_job(session_id, confirmed_speaker):
         if signals is None:
             signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
 
-        baseline = _get_context_baseline(user_id, primary_context)
-        session_history = _get_user_session_history(user_id)
-        resonance_calibration = _get_resonance_calibration(user_id)
-
         print(f"[{session_id}] Scoring dimensions...")
         emit("scoring", "Scoring behavioral dimensions…")
         dimensions = dimension_scorer.score_all(signals)
 
         print(f"[{session_id}] Detecting conversation type and generating insights...")
         emit("generating", "Generating insights with AI…")
-        transcript_text = _sample_transcript(merged)
-        conversation_types = context_detector.detect(transcript_text)
+        sample_text = _sample_transcript(merged)
+        full_text = _full_transcript(merged)
+        conversation_types = context_detector.detect(sample_text)
         primary_context = conversation_types[0]
         print(f"[{session_id}] Detected conversation types: {conversation_types}")
 
+        baseline = _get_context_baseline(user_id, primary_context)
+        session_history = _get_user_session_history(user_id)
+        resonance_calibration = _get_resonance_calibration(user_id)
+
         insights = insight_gen.generate(
-            signals, primary_context, baseline, transcript_text, dimensions,
+            signals, primary_context, baseline, full_text, dimensions,
             session_history=session_history,
             resonance_calibration=resonance_calibration,
             conversation_types=conversation_types,
         )
 
+        fingerprint = insights.pop("fingerprint", None)
+
         emit("reflecting", "Generating reflection questions…")
         reflection_questions = insight_gen.generate_reflection_questions(
-            signals, insights, transcript_text, primary_context
+            signals, insights, full_text, primary_context
         )
         if reflection_questions:
             insights["reflection_questions"] = reflection_questions
@@ -661,9 +650,24 @@ def _run_finalize_job(session_id, confirmed_speaker):
             session_id, user_id, signals, insights, dimensions,
             primary_context, filename, confirmed_speaker,
             speaker_confirmed=True,
-            merged=merged,
+            fingerprint=fingerprint,
             all_speakers_signals=all_speakers_signals
         )
+
+        # Trigger background consolidation if user has enough sessions
+        try:
+            count_res = supabase_admin.table("sessions").select(
+                "id", count="exact"
+            ).eq("user_id", user_id).execute()
+            session_count = count_res.count or 0
+            if session_count >= 12:
+                threading.Thread(
+                    target=_maybe_consolidate,
+                    args=(user_id, session_count),
+                    daemon=True
+                ).start()
+        except Exception:
+            pass
 
         if os.path.exists(audio_path):
             os.remove(audio_path)
@@ -680,7 +684,6 @@ def _run_finalize_job(session_id, confirmed_speaker):
             "speaker_confirmed": True,
             "available_speakers": all_speaker_ids,
             "voiceprint_confidence": voiceprint_confidence,
-            "transcript": merged,
         }
 
         if job_key in _jobs:
@@ -764,17 +767,18 @@ async def reanalyze_session(
     resonance_calibration = _get_resonance_calibration(user_id)
     dimensions = dimension_scorer.score_all(signals)
 
-    merged = json.loads(session["merged_json"]) if session.get("merged_json") else []
-    transcript_text = " ".join(
-        f"{s.get('speaker', 'UNKNOWN')}: {s.get('text', '')}"
-        for s in merged[:60]
-    )
+    # Re-analysis uses existing fingerprint as transcript context if no merged_json
+    existing_fingerprint = json.loads(session["fingerprint_json"]) if session.get("fingerprint_json") else None
+    transcript_text = existing_fingerprint or ""
+
     insights = insight_gen.generate(
         signals, primary_context, baseline, transcript_text, dimensions,
         session_history=session_history,
         resonance_calibration=resonance_calibration,
         conversation_types=conversation_types,
     )
+
+    fingerprint = insights.pop("fingerprint", existing_fingerprint)
 
     reflection_questions = insight_gen.generate_reflection_questions(
         signals, insights, transcript_text, primary_context
@@ -788,6 +792,7 @@ async def reanalyze_session(
         "signals_json": json.dumps(signals),
         "insights_json": json.dumps(insights),
         "dimensions_json": json.dumps(dimensions),
+        "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
     }).eq("id", session_id).execute()
 
     print(f"[{session_id}] Re-analysis done.")
@@ -800,7 +805,6 @@ async def reanalyze_session(
         "detected_speaker": confirmed_speaker,
         "speaker_confirmed": True,
         "available_speakers": list(all_speakers_signals.keys()),
-        "transcript": merged,
     }
 
 
@@ -825,7 +829,7 @@ def get_sessions(user_id: str = Depends(get_current_user)):
             "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
             "available_speakers": list(json.loads(s["all_speakers_signals_json"]).keys())
                 if s.get("all_speakers_signals_json") else [],
-            "transcript": json.loads(s["merged_json"]) if s.get("merged_json") else [],
+            "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
         }
         for s in res.data
     ]
@@ -873,14 +877,13 @@ def get_trends(user_id: str = Depends(get_current_user)):
 @app.get("/api/profile")
 def get_profile(user_id: str = Depends(get_current_user)):
     res = supabase_admin.table("sessions").select(
-        "id, context, created_at, signals_json, dimensions_json, insights_json, merged_json, detected_speaker"
+        "id, context, created_at, signals_json, dimensions_json, insights_json, fingerprint_json, detected_speaker"
     ).eq("user_id", user_id).order("created_at", desc=False).execute()
 
-    if len(res.data) < 3:
+    if len(res.data) < 1:
         return {
             "insufficient_data": True,
-            "session_count": len(res.data),
-            "sessions_needed": 3,
+            "session_count": 0,
         }
 
     parsed = []
@@ -889,11 +892,11 @@ def get_profile(user_id: str = Depends(get_current_user)):
             sig = json.loads(s["signals_json"])
             dims = json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {}
             ins = json.loads(s["insights_json"])
-            merged = json.loads(s["merged_json"]) if s.get("merged_json") else []
+            fingerprint = json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None
             parsed.append({
                 "context": s["context"], "date": s["created_at"],
                 "sig": sig, "dims": dims, "ins": ins,
-                "merged": merged,
+                "fingerprint": fingerprint,
                 "detected_speaker": s.get("detected_speaker") or "SPEAKER_00",
             })
         except Exception:
@@ -931,29 +934,30 @@ def get_profile(user_id: str = Depends(get_current_user)):
                 "filler_rate": round(sum(p["sig"]["filler_words"]["rate_per_100_words"] for p in items) / len(items), 2),
             }
 
-    # Pattern detection
+    # Pattern detection (needs 2+ sessions to establish consistency)
     patterns = []
-    talk_ratios = [p["sig"]["talk_ratio"]["user_ratio"] * 100 for p in parsed]
-    high_talk = sum(1 for r in talk_ratios if r > 60)
-    low_talk  = sum(1 for r in talk_ratios if r < 40)
-    if high_talk >= n * 0.7:
-        patterns.append({"signal": "talk_ratio", "type": "consistently_high",
-                          "detail": f"You speak over 60% of the time in {high_talk}/{n} sessions."})
-    elif low_talk >= n * 0.7:
-        patterns.append({"signal": "talk_ratio", "type": "consistently_low",
-                          "detail": f"You speak under 40% of the time in {low_talk}/{n} sessions."})
+    if n >= 2:
+        talk_ratios = [p["sig"]["talk_ratio"]["user_ratio"] * 100 for p in parsed]
+        high_talk = sum(1 for r in talk_ratios if r > 60)
+        low_talk  = sum(1 for r in talk_ratios if r < 40)
+        if high_talk >= n * 0.7:
+            patterns.append({"signal": "talk_ratio", "type": "consistently_high",
+                              "detail": f"You speak over 60% of the time in {high_talk}/{n} sessions."})
+        elif low_talk >= n * 0.7:
+            patterns.append({"signal": "talk_ratio", "type": "consistently_low",
+                              "detail": f"You speak under 40% of the time in {low_talk}/{n} sessions."})
 
-    filler_rates = [p["sig"]["filler_words"]["rate_per_100_words"] for p in parsed]
-    avg_filler = sum(filler_rates) / len(filler_rates)
-    if avg_filler > 5:
-        patterns.append({"signal": "filler_words", "type": "consistently_high",
-                          "detail": f"Average filler rate {round(avg_filler, 1)}/100 words across all sessions."})
+        filler_rates = [p["sig"]["filler_words"]["rate_per_100_words"] for p in parsed]
+        avg_filler = sum(filler_rates) / len(filler_rates)
+        if avg_filler > 5:
+            patterns.append({"signal": "filler_words", "type": "consistently_high",
+                              "detail": f"Average filler rate {round(avg_filler, 1)}/100 words across all sessions."})
 
-    interruption_counts = [p["sig"]["interruptions"]["user_interrupted_other"] for p in parsed]
-    avg_interrupts = sum(interruption_counts) / len(interruption_counts)
-    if avg_interrupts >= 3:
-        patterns.append({"signal": "interruptions", "type": "consistently_high",
-                          "detail": f"You average {round(avg_interrupts, 1)} interruptions per session."})
+        interruption_counts = [p["sig"]["interruptions"]["user_interrupted_other"] for p in parsed]
+        avg_interrupts = sum(interruption_counts) / len(interruption_counts)
+        if avg_interrupts >= 3:
+            patterns.append({"signal": "interruptions", "type": "consistently_high",
+                              "detail": f"You average {round(avg_interrupts, 1)} interruptions per session."})
 
     # Trend detection across first vs last third (needs 6+ sessions)
     trends = []
@@ -1027,21 +1031,46 @@ def get_profile(user_id: str = Depends(get_current_user)):
     elif completeness < 90: completeness_label = "Established"
     else:                   completeness_label = "Deep mirror"
 
-    # Mirror Feed: 3 highlights per session, last 7 sessions newest-first
-    session_highlights = []
-    for p in reversed(parsed[-7:]):
+    _MF_VERSION = 3  # bump when tip field or prompt changes to invalidate old cache
+    mf_cache_key = f"{user_id}:{n}:v{_MF_VERSION}"
+    mirror_feed = _mirror_feed_cache.get(mf_cache_key)
+
+    if mirror_feed is None:
+        # Try Supabase cache
         try:
-            from datetime import datetime as _dt2
-            date_str = _dt2.fromisoformat(p["date"].replace("Z", "+00:00")).strftime("%b %d")
+            mf_res = supabase_admin.table("user_profiles").select(
+                "mirror_feed_json, mirror_feed_session_count"
+            ).eq("user_id", user_id).execute()
+            if mf_res.data:
+                row = mf_res.data[0]
+                if row.get("mirror_feed_session_count") == n * _MF_VERSION and row.get("mirror_feed_json"):
+                    mirror_feed = json.loads(row["mirror_feed_json"])
         except Exception:
-            date_str = "recent"
-        hl = _extract_mirror_highlights(p["ins"])
-        if hl:
-            session_highlights.append({
-                "date": date_str,
+            pass
+
+    if mirror_feed is None:
+        feed_sessions = [
+            {
                 "context": p["context"],
-                "highlights": hl,
-            })
+                "date": p["date"][:10],
+                "fingerprint": p.get("fingerprint") or "",
+                "notable_pattern": p["ins"].get("notable_pattern", ""),
+            }
+            for p in parsed
+        ]
+        user_summary = _get_user_summary(user_id)
+        mirror_feed = mirror_feed_synth.synthesize(feed_sessions, user_summary=user_summary)
+        try:
+            supabase_admin.table("user_profiles").upsert({
+                "user_id": user_id,
+                "mirror_feed_json": json.dumps(mirror_feed),
+                "mirror_feed_session_count": n * _MF_VERSION,
+                "updated_at": _utcnow(),
+            }).execute()
+        except Exception:
+            pass
+
+    _mirror_feed_cache[mf_cache_key] = mirror_feed
 
     return {
         "insufficient_data": False,
@@ -1055,7 +1084,7 @@ def get_profile(user_id: str = Depends(get_current_user)):
         "blind_spots": blind_spots,
         "completeness": completeness,
         "completeness_label": completeness_label,
-        "session_highlights": session_highlights,
+        "mirror_feed": mirror_feed,
     }
 
 
@@ -1069,6 +1098,15 @@ async def delete_session(
     ).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Session not found.")
+
+    # Evict all cached profile data for this user — session count has changed
+    for key in list(_personality_cache.keys()):
+        if key.startswith(f"{user_id}:"):
+            del _personality_cache[key]
+    for key in list(_mirror_feed_cache.keys()):
+        if key.startswith(f"{user_id}:"):
+            del _mirror_feed_cache[key]
+
     return {"status": "deleted"}
 
 
@@ -1296,37 +1334,40 @@ def _get_context_baseline(user_id: str, context: str) -> dict | None:
     return None
 
 
-def _get_user_session_history(user_id: str, limit: int = 10) -> list:
-    """Return last N sessions in chronological order for cross-session prompting."""
-    res = supabase_admin.table("sessions").select(
-        "id, context, created_at, signals_json, insights_json, dimensions_json"
-    ).eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+def _get_user_session_history(user_id: str, limit: int = 8) -> list:
+    """Return session history for cross-session context.
+    If a consolidated summary exists (12+ sessions), returns it + last 3 individual fingerprints.
+    Otherwise returns last N individual fingerprints.
+    """
+    user_summary = _get_user_summary(user_id)
 
-    history = []
+    fetch_limit = 3 if user_summary else limit
+    res = supabase_admin.table("sessions").select(
+        "context, created_at, fingerprint_json, insights_json"
+    ).eq("user_id", user_id).order("created_at", desc=True).limit(fetch_limit).execute()
+
+    recent = []
     for s in reversed(res.data):  # oldest first
         try:
-            signals = json.loads(s["signals_json"])
-            insights = json.loads(s["insights_json"])
-            dimensions = json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {}
-            history.append({
-                "context": s["context"],
-                "date": s["created_at"][:10],
-                "summary": insights.get("summary_sentence", ""),
-                "signals": {
-                    "talk_ratio_pct": round(signals["talk_ratio"]["user_ratio"] * 100, 1),
-                    "wpm": signals["speech_rate"]["overall_wpm"],
-                    "filler_rate": signals["filler_words"]["rate_per_100_words"],
-                    "interruptions_given": signals["interruptions"]["user_interrupted_other"],
-                    "silence_ratio_pct": round(signals["silence_ratio"]["silence_ratio"] * 100, 1),
-                },
-                "top_coaching_areas": [
-                    c.get("area") for c in insights.get("coaching_suggestions", [])[:2]
-                    if c.get("area")
-                ],
-            })
+            fingerprint = None
+            if s.get("fingerprint_json"):
+                fingerprint = json.loads(s["fingerprint_json"])
+            if not fingerprint and s.get("insights_json"):
+                ins = json.loads(s["insights_json"])
+                fingerprint = ins.get("summary_sentence") or ins.get("conversation_summary")
+            if fingerprint:
+                recent.append({
+                    "context": s["context"],
+                    "date": s["created_at"][:10],
+                    "fingerprint": fingerprint,
+                })
         except Exception:
             continue
-    return history
+
+    if user_summary:
+        return [{"context": "profile", "date": "consolidated",
+                 "fingerprint": f"CONSOLIDATED BEHAVIORAL PROFILE:\n{user_summary}"}] + recent
+    return recent
 
 
 def _get_resonance_calibration(user_id: str) -> dict:
@@ -1352,9 +1393,131 @@ def _get_resonance_calibration(user_id: str) -> dict:
     return {"avoid": avoid, "emphasize": emphasize}
 
 
+# ── User summary consolidation ────────────────────────────────────────
+
+def _generate_user_summary(fingerprints: list) -> str:
+    """LLM call: consolidate all session fingerprints into one behavioral summary."""
+    ctx_map: dict = {}
+    for fp in fingerprints:
+        ctx_map.setdefault(fp["context"], []).append(fp)
+
+    blocks = []
+    for ctx, items in ctx_map.items():
+        label = ctx.replace("_", " ").title()
+        block = f"{label} ({len(items)} sessions):\n"
+        for item in items:
+            block += f"  {item['date']}: {item['fingerprint']}\n"
+        blocks.append(block)
+
+    prompt = f"""You are building a consolidated behavioral profile from {len(fingerprints)} recorded conversations.
+
+SESSIONS BY CONTEXT:
+{''.join(blocks)}
+
+TASK: Write a single comprehensive behavioral summary of this person — 400–600 words.
+
+Cover:
+- Their core behavioral tendencies that appear regardless of context
+- How they show up differently across different types of conversations (if multiple contexts exist)
+- Recurring strengths — what they do consistently well
+- Recurring blind spots or development areas that appear across multiple sessions
+- How their behavior has evolved from their earliest sessions to their most recent ones
+
+RULES:
+1. Be specific — reference what was actually observed, not generic descriptions
+2. Write in third person ("this person", "they", "their") — this is a reference document, not a direct address
+3. Do not use raw numbers — translate signals into behavioral descriptions
+4. Be honest about both strengths and gaps
+5. Output plain text only — no JSON, no markdown headers, no bullet points"""
+
+    try:
+        response = personality_synth.client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=900,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return ""
+
+
+def _maybe_consolidate(user_id: str, session_count: int) -> None:
+    """Run in background thread. Consolidates fingerprints into user_summary_json
+    at 12+ sessions, then refreshes every 5 new sessions."""
+    if session_count < 12:
+        return
+    try:
+        profile_res = supabase_admin.table("user_profiles").select(
+            "user_summary_json, summary_session_count"
+        ).eq("user_id", user_id).execute()
+
+        existing = profile_res.data[0] if profile_res.data else {}
+        last_count = existing.get("summary_session_count") or 0
+
+        # Skip if summary is recent enough (within 5 sessions)
+        if existing.get("user_summary_json") and (session_count - last_count) < 5:
+            return
+
+        fp_res = supabase_admin.table("sessions").select(
+            "context, created_at, fingerprint_json"
+        ).eq("user_id", user_id).order("created_at", desc=False).execute()
+
+        fingerprints = []
+        for s in fp_res.data:
+            if s.get("fingerprint_json"):
+                try:
+                    fp = json.loads(s["fingerprint_json"])
+                    if fp:
+                        fingerprints.append({
+                            "context": s["context"],
+                            "date": s["created_at"][:10],
+                            "fingerprint": fp,
+                        })
+                except Exception:
+                    continue
+
+        if len(fingerprints) < 10:
+            return
+
+        summary = _generate_user_summary(fingerprints)
+        if not summary:
+            return
+
+        supabase_admin.table("user_profiles").upsert({
+            "user_id": user_id,
+            "user_summary_json": summary,
+            "summary_session_count": session_count,
+        }).execute()
+        print(f"[consolidation] Updated user summary for {user_id} at {session_count} sessions.")
+    except Exception as e:
+        print(f"[consolidation] Failed for {user_id}: {e}")
+
+
+def _get_user_summary(user_id: str) -> str | None:
+    """Return consolidated behavioral summary if it exists."""
+    try:
+        res = supabase_admin.table("user_profiles").select(
+            "user_summary_json"
+        ).eq("user_id", user_id).execute()
+        if res.data and res.data[0].get("user_summary_json"):
+            return res.data[0]["user_summary_json"]
+    except Exception:
+        pass
+    return None
+
+
+def _full_transcript(merged: list) -> str:
+    """Format complete diarized transcript as speaker-labeled lines."""
+    return "\n".join(
+        f"{s.get('speaker', 'UNKNOWN')}: {s.get('text', '').strip()}"
+        for s in merged
+        if s.get("text", "").strip()
+    )
+
+
 def _sample_transcript(merged: list, max_segments: int = 60) -> str:
-    """Return a transcript string covering the full conversation.
-    If <= max_segments, use all. Otherwise take evenly-spaced thirds with no overlap."""
+    """Short transcript sample — used only for context detection."""
     n = len(merged)
     if n <= max_segments:
         selected = merged
@@ -1379,7 +1542,7 @@ def _sample_transcript(merged: list, max_segments: int = 60) -> str:
 def _save_session(
     session_id, user_id, signals, insights, dimensions,
     context, filename="recording", detected_speaker="SPEAKER_00",
-    speaker_confirmed=True, merged=None, all_speakers_signals=None
+    speaker_confirmed=True, fingerprint=None, all_speakers_signals=None
 ):
     supabase_admin.table("sessions").insert({
         "id": session_id,
@@ -1391,6 +1554,6 @@ def _save_session(
         "signals_json": json.dumps(signals),
         "insights_json": json.dumps(insights),
         "dimensions_json": json.dumps(dimensions),
-        "merged_json": json.dumps(merged) if merged else None,
+        "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
         "all_speakers_signals_json": json.dumps(all_speakers_signals) if all_speakers_signals else None,
     }).execute()
