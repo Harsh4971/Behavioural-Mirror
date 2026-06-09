@@ -10,3 +10,4 @@ librosa
 numpy
 scipy
 pyannote.audio
+omegaconf
