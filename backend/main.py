@@ -11,6 +11,12 @@ import numpy as np
 
 load_dotenv()
 
+import warnings, logging
+warnings.filterwarnings("ignore")
+logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
+logging.getLogger("lightning_fabric").setLevel(logging.ERROR)
+logging.getLogger("pyannote").setLevel(logging.ERROR)
+
 from pipeline.transcriber import Transcriber
 from pipeline.diarizer import Diarizer
 from pipeline.signal_extractor import SignalExtractor
@@ -49,6 +55,13 @@ _CACHE_TTL = 1800  # 30 minutes
 # SSE job queues: { job_key: stdlib_queue.Queue }
 _jobs: dict = {}
 
+# Cancelled sessions — background threads check this and bail early
+_cancelled: set = set()
+
+
+def _sid(session_id: str) -> str:
+    return session_id[:8]
+
 
 def _utcnow():
     return datetime.now(timezone.utc).isoformat()
@@ -65,7 +78,7 @@ def _cleanup_stale_cache():
         del _prepare_cache[sid]
 
 
-print("Loading models...")
+print("[startup] Loading models...")
 transcriber = Transcriber(api_key=os.getenv("GROQ_API_KEY"))
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
@@ -74,7 +87,7 @@ dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
 personality_synth = PersonalitySynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 mirror_feed_synth = MirrorFeedSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
-print("All models loaded. Server ready.")
+print("[startup] All models loaded. Server ready.")
 
 # In-memory caches — cleared on server restart, Supabase is the durable layer
 _personality_cache: dict = {}   # key = "{user_id}:{session_count}:v{version}"
@@ -331,8 +344,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> str:
 # ── Health ────────────────────────────────────────────────────────
 
 @app.get("/")
+@app.head("/")
 def root():
     return {"status": "mirror. API is running"}
+
+
+@app.get("/health")
+@app.head("/health")
+def health():
+    return {"status": "ok"}
 
 
 # ── SSE Step 1: Start prepare job ────────────────────────────────
@@ -378,7 +398,7 @@ async def start_prepare_session(
         daemon=True
     ).start()
 
-    print(f"[{session_id}] Prepare job started (SSE)")
+    print(f"[{_sid(session_id)}] ▶ Upload received — starting analysis")
     return {"job_id": session_id}
 
 
@@ -390,7 +410,12 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
             _prepare_cache[session_id]["current_step"] = step
 
     try:
-        print(f"[{session_id}] Transcribing and diarizing in parallel...")
+        if session_id in _cancelled:
+            _cancelled.discard(session_id)
+            print(f"[{_sid(session_id)}] ✕ Cancelled before start")
+            return
+
+        print(f"[{_sid(session_id)}] 1/3 Transcribing + diarizing...")
         emit("transcribing", "Transcribing audio with Whisper…")
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -400,10 +425,17 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
             emit("diarizing", "Identifying speakers…")
             diarization = f_diarization.result()
 
+        if session_id in _cancelled:
+            _cancelled.discard(session_id)
+            if os.path.exists(audio_path): os.remove(audio_path)
+            print(f"[{_sid(session_id)}] ✕ Cancelled after transcription")
+            return
+
         merged = diarizer.merge_transcript_with_speakers(
             transcript["segments"], diarization
         )
 
+        print(f"[{_sid(session_id)}] 2/3 Detecting voice ({len({s['speaker'] for s in diarization})} speakers found)...")
         emit("detecting", "Detecting your voice…")
 
         voiceprint_match = None
@@ -417,11 +449,9 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
         speaker_ids = sorted({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
 
         if stored_vp and voiceprint_matcher.available:
-            # Support both old format (single embedding) and new format (list of embeddings)
             raw = json.loads(stored_vp["embedding_json"])
             stored_embs = [np.array(e) for e in raw] if isinstance(raw[0], list) else [np.array(raw)]
 
-            # Build per-speaker segments and talk-time map
             speaker_segs_map: dict = {}
             for seg in diarization:
                 if seg["speaker"] != "UNKNOWN":
@@ -433,7 +463,6 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
             }
             total_time = sum(talk_times.values()) or 1
 
-            # Score each speaker: max similarity across all stored embeddings
             vp_scores: dict = {}
             for sp, segs in speaker_segs_map.items():
                 emb = voiceprint_matcher.extract_speaker_embedding(audio_path, segs)
@@ -444,20 +473,14 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
                     )
 
             if vp_scores:
-                print(f"[{session_id}] Voiceprint scores: { {k: round(v,3) for k,v in vp_scores.items()} }")
-                print(f"[{session_id}] Talk-time shares: { {k: round(talk_times[k]/total_time,3) for k in talk_times} }")
                 best_vp = max(vp_scores, key=vp_scores.get)
                 best_score = vp_scores[best_vp]
 
                 if best_score >= 0.55:
-                    # Confident match — trust the voiceprint
                     voiceprint_match = best_vp
                     voiceprint_confidence = best_score
-                    print(f"[{session_id}] Voiceprint matched: {best_vp} "
-                          f"(confidence {best_score:.2f})")
+                    print(f"[{_sid(session_id)}]    Voice matched: {best_vp} (confidence {best_score:.2f})")
                 else:
-                    # Low confidence (e.g. advice-giving voice ≠ quiet enrollment recording).
-                    # Blend voiceprint score 60% with talk-time share 40% to break the tie.
                     combined = {
                         sp: 0.6 * vp_scores[sp] + 0.4 * (talk_times.get(sp, 0) / total_time)
                         for sp in vp_scores
@@ -465,10 +488,8 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
                     best_combined = max(combined, key=combined.get)
                     voiceprint_match = best_combined
                     voiceprint_confidence = best_score
-                    print(f"[{session_id}] Low-confidence voiceprint ({best_score:.2f}), "
-                          f"blending with talk-time → {best_combined}")
+                    print(f"[{_sid(session_id)}]    Voice low-confidence ({best_score:.2f}) → blended to {best_combined}")
 
-        # Fall back to first speaker by ID if voiceprint not enrolled or model unavailable
         detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
         _prepare_cache[session_id] = {
@@ -493,12 +514,12 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
 
         if session_id in _jobs:
             _jobs[session_id].put({"event": "done", "data": result_data})
-        print(f"[{session_id}] Prepare job done.")
+        print(f"[{_sid(session_id)}] ✓ Prepare done — ready for speaker confirmation")
 
     except Exception as e:
         if os.path.exists(audio_path):
             os.remove(audio_path)
-        print(f"[{session_id}] Prepare error: {e}")
+        print(f"[{_sid(session_id)}] ✕ Prepare error: {e}")
         if session_id in _jobs:
             _jobs[session_id].put({"event": "error", "message": str(e)})
 
@@ -577,7 +598,7 @@ async def start_finalize_session(
         daemon=True
     ).start()
 
-    print(f"[{session_id}] Finalize job started (SSE)")
+    print(f"[{_sid(session_id)}] ▶ Speaker confirmed ({confirmed_speaker}) — starting analysis")
     return {"job_id": session_id}
 
 
@@ -602,7 +623,12 @@ def _run_finalize_job(session_id, confirmed_speaker):
     voiceprint_confidence = cached.get("voiceprint_confidence")
 
     try:
-        print(f"[{session_id}] Extracting signals for all speakers...")
+        if session_id in _cancelled:
+            _cancelled.discard(session_id)
+            print(f"[{_sid(session_id)}] ✕ Cancelled before finalize")
+            return
+
+        print(f"[{_sid(session_id)}] 1/4 Extracting behavioral signals...")
         emit("extracting", "Extracting behavioral signals…")
         all_speaker_ids = list({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
         all_speakers_signals = {}
@@ -613,17 +639,23 @@ def _run_finalize_job(session_id, confirmed_speaker):
         if signals is None:
             signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
 
-        print(f"[{session_id}] Scoring dimensions...")
+        if session_id in _cancelled:
+            _cancelled.discard(session_id)
+            if os.path.exists(audio_path): os.remove(audio_path)
+            print(f"[{_sid(session_id)}] ✕ Cancelled after signal extraction")
+            return
+
+        print(f"[{_sid(session_id)}] 2/4 Scoring dimensions...")
         emit("scoring", "Scoring behavioral dimensions…")
         dimensions = dimension_scorer.score_all(signals)
 
-        print(f"[{session_id}] Detecting conversation type and generating insights...")
+        print(f"[{_sid(session_id)}] 3/4 Detecting context + generating insights...")
         emit("generating", "Generating insights with AI…")
         sample_text = _sample_transcript(merged)
         full_text = _full_transcript(merged)
         conversation_types = context_detector.detect(sample_text)
         primary_context = conversation_types[0]
-        print(f"[{session_id}] Detected conversation types: {conversation_types}")
+        print(f"[{_sid(session_id)}]    Context: {', '.join(conversation_types)}")
 
         baseline = _get_context_baseline(user_id, primary_context)
         session_history = _get_user_session_history(user_id)
@@ -638,6 +670,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
 
         fingerprint = insights.pop("fingerprint", None)
 
+        print(f"[{_sid(session_id)}] 4/4 Generating reflection questions...")
         emit("reflecting", "Generating reflection questions…")
         reflection_questions = insight_gen.generate_reflection_questions(
             signals, insights, full_text, primary_context
@@ -673,7 +706,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
             os.remove(audio_path)
         del _prepare_cache[session_id]
 
-        print(f"[{session_id}] Done.")
+        print(f"[{_sid(session_id)}] ✓ Analysis complete — saved to Supabase")
         result_data = {
             "session_id": session_id,
             "signals": signals,
@@ -693,7 +726,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
         if os.path.exists(audio_path):
             os.remove(audio_path)
         _prepare_cache.pop(session_id, None)
-        print(f"[{session_id}] Finalize error: {e}")
+        print(f"[{_sid(session_id)}] ✕ Finalize error: {e}")
         if job_key in _jobs:
             _jobs[job_key].put({"event": "error", "message": str(e)})
 
@@ -725,6 +758,22 @@ async def stream_finalize_progress(job_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
+
+
+# ── Cancel ───────────────────────────────────────────────────────
+
+@app.delete("/api/jobs/{session_id}")
+async def cancel_job(session_id: str, user_id: str = Depends(get_current_user)):
+    _cancelled.add(session_id)
+    _jobs.pop(session_id, None)
+    _jobs.pop(f"finalize_{session_id}", None)
+    cached = _prepare_cache.pop(session_id, None)
+    if cached:
+        path = cached.get("audio_path", "")
+        if path and os.path.exists(path):
+            os.remove(path)
+    print(f"[{_sid(session_id)}] ✕ Cancelled by user")
+    return {"status": "cancelled"}
 
 
 # ── Reanalyze ─────────────────────────────────────────────────────
@@ -761,7 +810,7 @@ async def reanalyze_session(
     existing_insights = json.loads(session["insights_json"]) if session.get("insights_json") else {}
     conversation_types = existing_insights.get("conversation_types", [primary_context])
 
-    print(f"[{session_id}] Re-analyzing as {confirmed_speaker}...")
+    print(f"[{_sid(session_id)}] ▶ Re-analyzing as {confirmed_speaker}...")
     baseline = _get_context_baseline(user_id, primary_context)
     session_history = _get_user_session_history(user_id)
     resonance_calibration = _get_resonance_calibration(user_id)
@@ -795,7 +844,7 @@ async def reanalyze_session(
         "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
     }).eq("id", session_id).execute()
 
-    print(f"[{session_id}] Re-analysis done.")
+    print(f"[{_sid(session_id)}] ✓ Re-analysis done")
     return {
         "session_id": session_id,
         "signals": signals,
