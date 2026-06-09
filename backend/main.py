@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from typing import Optional
 import os, shutil, uuid, json, time, subprocess, asyncio, threading
 import queue as stdlib_queue
@@ -353,6 +353,137 @@ def root():
 @app.head("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_policy():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Mirror: Voice Insights</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f1117;
+      color: #c4c2d8;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      padding: 48px 24px 80px;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 48px; }
+    .logo h1 { font-size: 22px; font-weight: 700; color: #f0eeff; letter-spacing: -0.3px; }
+    .logo span { color: #1d4ed8; }
+    h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+         color: #1d4ed8; margin: 40px 0 12px; }
+    p { margin-bottom: 12px; color: #9d9bba; }
+    ul { padding-left: 20px; margin-bottom: 12px; }
+    li { margin-bottom: 6px; color: #9d9bba; }
+    strong { color: #c4c2d8; }
+    .highlight {
+      background: rgba(29,78,216,0.08);
+      border: 1px solid rgba(29,78,216,0.2);
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin: 24px 0;
+      color: #a5b4fc;
+      font-size: 14px;
+    }
+    .meta { color: #4a4d6a; font-size: 13px; margin-top: 60px; padding-top: 24px;
+            border-top: 1px solid #1e2438; }
+    a { color: #5b9cf6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo">
+    <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/>
+        </linearGradient>
+      </defs>
+      <rect x="2"  y="12" width="4" height="4"  rx="2" fill="url(#g)" opacity=".4"/>
+      <rect x="8"  y="8"  width="4" height="8"  rx="2" fill="url(#g)" opacity=".65"/>
+      <rect x="14" y="4"  width="4" height="12" rx="2" fill="url(#g)"/>
+      <rect x="20" y="8"  width="4" height="8"  rx="2" fill="url(#g)" opacity=".65"/>
+      <rect x="26" y="12" width="4" height="4"  rx="2" fill="url(#g)" opacity=".4"/>
+      <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+      <rect x="2"  y="18" width="4" height="4"  rx="2" fill="url(#g)" opacity=".18"/>
+      <rect x="8"  y="18" width="4" height="8"  rx="2" fill="url(#g)" opacity=".3"/>
+      <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#g)" opacity=".38"/>
+      <rect x="20" y="18" width="4" height="8"  rx="2" fill="url(#g)" opacity=".3"/>
+      <rect x="26" y="18" width="4" height="4"  rx="2" fill="url(#g)" opacity=".18"/>
+    </svg>
+    <h1>mirror<span>.</span></h1>
+  </div>
+
+  <h1 style="font-size:28px;font-weight:700;color:#f0eeff;letter-spacing:-0.5px;margin-bottom:8px;">
+    Privacy Policy
+  </h1>
+  <p style="color:#4a4d6a;font-size:14px;">Mirror: Voice Insights &nbsp;·&nbsp; Effective 9 June 2026</p>
+
+  <div class="highlight">
+    <strong>The short version:</strong> Your audio is processed to generate insights and deleted immediately afterwards. We never store, sell, or share your recordings.
+  </div>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><strong>Email address</strong> — used solely for account authentication via Supabase.</li>
+    <li><strong>Audio recordings</strong> — uploaded by you for analysis. Deleted from our servers immediately after processing is complete. Never stored long-term.</li>
+    <li><strong>Behavioural analysis results</strong> — transcripts, speaker patterns, dimension scores, and insights generated from your recordings. Stored in your account so you can track trends over time.</li>
+    <li><strong>Voiceprint embedding</strong> — a mathematical representation of your voice (not a recording) used to identify which speaker is you across sessions. Stored encrypted in your account and can be deleted at any time.</li>
+  </ul>
+
+  <h2>What we do not collect</h2>
+  <ul>
+    <li>We do not record or store raw audio beyond the duration of analysis.</li>
+    <li>We do not sell, rent, or share your data with third parties for advertising or marketing.</li>
+    <li>We do not track your browsing activity or behaviour outside of the Mirror extension.</li>
+  </ul>
+
+  <h2>How your data is processed</h2>
+  <p>When you upload a recording, it is sent securely to our processing server. The following steps occur:</p>
+  <ul>
+    <li>Audio is transcribed using the <strong>Groq Whisper API</strong> (Groq's privacy policy applies to transcription).</li>
+    <li>Speaker diarization and voice analysis are performed using <strong>pyannote.audio</strong> models running on our server.</li>
+    <li>Behavioural insights are generated using <strong>Groq's language model API</strong>.</li>
+    <li>The audio file is permanently deleted from our server once processing is complete.</li>
+  </ul>
+  <p>Analysis results (not the audio) are stored in your account database hosted on <strong>Supabase</strong>, a GDPR-compliant cloud database provider.</p>
+
+  <h2>Google Meet integration</h2>
+  <p>When using Mirror with Google Meet, the extension can capture audio from your meeting tab only when you explicitly click the Record button. Audio is never captured automatically or without your knowledge. The same data handling rules apply: audio is processed and deleted; only the resulting insights are stored.</p>
+
+  <h2>Third-party services</h2>
+  <ul>
+    <li><strong>Supabase</strong> — authentication and database storage. <a href="https://supabase.com/privacy" target="_blank">Privacy policy</a>.</li>
+    <li><strong>Groq</strong> — speech transcription and language model inference. <a href="https://groq.com/privacy-policy/" target="_blank">Privacy policy</a>.</li>
+    <li><strong>HuggingFace</strong> — model hosting and inference infrastructure. <a href="https://huggingface.co/privacy" target="_blank">Privacy policy</a>.</li>
+  </ul>
+
+  <h2>Your rights</h2>
+  <p>You can delete all your data at any time from within the extension: open the Mirror popup → Account → Delete account. This permanently removes your analysis history, voiceprint, and account from our systems. You can also contact us directly to request data deletion.</p>
+
+  <h2>Data security</h2>
+  <p>All data is transmitted over HTTPS. Account authentication uses industry-standard JWT tokens managed by Supabase. Audio files are stored in temporary server memory only during processing and are never written to persistent disk storage.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If we make material changes to how we handle your data, we will update the effective date of this policy. Continued use of Mirror after changes are posted constitutes acceptance of the updated policy.</p>
+
+  <h2>Contact</h2>
+  <p>Questions or data requests: <a href="mailto:harsh200415@gmail.com">harsh200415@gmail.com</a></p>
+
+  <p class="meta">Mirror: Voice Insights &nbsp;·&nbsp; Privacy Policy &nbsp;·&nbsp; Last updated 9 June 2026</p>
+
+</div>
+</body>
+</html>"""
 
 
 # ── SSE Step 1: Start prepare job ────────────────────────────────
