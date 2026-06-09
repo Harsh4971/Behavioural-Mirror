@@ -4,22 +4,25 @@ import json
 
 class VoiceprintMatcher:
     def __init__(self, hf_token: str = None):
-        print("Loading speaker embedding model...")
         try:
             from pyannote.audio import Inference, Model
             from pyannote.core import Segment
 
             self._Segment = Segment
-            model = Model.from_pretrained(
-                "pyannote/embedding",
-                token=hf_token
-            )
+            try:
+                model = Model.from_pretrained(
+                    "pyannote/embedding",
+                    token=hf_token
+                )
+            except TypeError:
+                model = Model.from_pretrained(
+                    "pyannote/embedding",
+                    use_auth_token=hf_token
+                )
             self.inference = Inference(model, window="whole")
             self.available = True
-            print("Speaker embedding model loaded.")
         except Exception as e:
-            print(f"Warning: Speaker embedding model unavailable ({e}). "
-                  "Voiceprint features disabled.")
+            print(f"[startup] Warning: voiceprint model unavailable — {e}")
             self.inference = None
             self._Segment = None
             self.available = False

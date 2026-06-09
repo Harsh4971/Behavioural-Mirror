@@ -6,15 +6,18 @@ torch.serialization.add_safe_globals([])
 
 class Diarizer:
     def __init__(self, hf_token: str = None):
-        print("Loading pyannote diarization model...")
-        self.pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            token=hf_token
-        )
-        print("Diarization model loaded.")
+        try:
+            self.pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                token=hf_token
+            )
+        except TypeError:
+            self.pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1",
+                use_auth_token=hf_token
+            )
 
     def diarize(self, audio_path: str) -> list:
-        print(f"Diarizing: {audio_path}")
         with torch.no_grad():
             diarization = self.pipeline(audio_path, min_speakers=1, max_speakers=6)
 
