@@ -1,7 +1,35 @@
 import torch
 from pyannote.audio import Pipeline
+from pyannote.core import Annotation
 
 torch.serialization.add_safe_globals([])
+
+
+def _extract_annotation(result) -> Annotation:
+    """Extract pyannote Annotation from whatever the pipeline returns."""
+    if isinstance(result, Annotation):
+        return result
+    # Scan named attributes (handles dataclasses and namedtuples)
+    for attr in dir(result):
+        if attr.startswith('_'):
+            continue
+        try:
+            val = getattr(result, attr)
+            if isinstance(val, Annotation):
+                return val
+        except Exception:
+            pass
+    # Try positional iteration (plain tuples / namedtuples)
+    try:
+        for item in result:
+            if isinstance(item, Annotation):
+                return item
+    except TypeError:
+        pass
+    raise RuntimeError(
+        f"Cannot find Annotation in diarization result: "
+        f"{type(result).__name__} attrs={[a for a in dir(result) if not a.startswith('_')]}"
+    )
 
 
 class Diarizer:
@@ -21,19 +49,7 @@ class Diarizer:
         with torch.no_grad():
             result = self.pipeline(audio_path, min_speakers=1, max_speakers=6)
 
-        print(f"[diarizer] result type: {type(result).__name__}, has itertracks: {hasattr(result, 'itertracks')}")
-
-        # Unwrap whatever container pyannote returns to get the Annotation object
-        if hasattr(result, 'itertracks'):
-            annotation = result
-        elif hasattr(result, 'diarization'):
-            annotation = result.diarization
-        else:
-            # Last resort: namedtuple/dataclass — grab first field via iteration
-            try:
-                annotation = next(iter(result))
-            except TypeError:
-                annotation = result
+        annotation = _extract_annotation(result)
 
         return [
             {"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)}
