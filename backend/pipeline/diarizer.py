@@ -19,11 +19,14 @@ class Diarizer:
 
     def diarize(self, audio_path: str) -> list:
         with torch.no_grad():
-            diarization = self.pipeline(audio_path, min_speakers=1, max_speakers=6)
+            result = self.pipeline(audio_path, min_speakers=1, max_speakers=6)
+
+        # pyannote >= 3.3 wraps output in DiarizeOutput(diarization=..., embeddings=...)
+        annotation = result.diarization if hasattr(result, 'diarization') else result
 
         return [
             {"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)}
-            for turn, _, speaker in diarization.itertracks(yield_label=True)
+            for turn, _, speaker in annotation.itertracks(yield_label=True)
         ]
 
     def merge_transcript_with_speakers(
