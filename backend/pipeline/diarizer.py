@@ -21,8 +21,19 @@ class Diarizer:
         with torch.no_grad():
             result = self.pipeline(audio_path, min_speakers=1, max_speakers=6)
 
-        # pyannote >= 3.3 wraps output in DiarizeOutput(diarization=..., embeddings=...)
-        annotation = result.diarization if hasattr(result, 'diarization') else result
+        print(f"[diarizer] result type: {type(result).__name__}, has itertracks: {hasattr(result, 'itertracks')}")
+
+        # Unwrap whatever container pyannote returns to get the Annotation object
+        if hasattr(result, 'itertracks'):
+            annotation = result
+        elif hasattr(result, 'diarization'):
+            annotation = result.diarization
+        else:
+            # Last resort: namedtuple/dataclass — grab first field via iteration
+            try:
+                annotation = next(iter(result))
+            except TypeError:
+                annotation = result
 
         return [
             {"speaker": speaker, "start": round(turn.start, 3), "end": round(turn.end, 3)}
