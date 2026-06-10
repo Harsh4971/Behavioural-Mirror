@@ -9,5 +9,5 @@ pydub
 librosa
 numpy
 scipy
-pyannote.audio==3.3.2
+pyannote.audio
 omegaconf
