@@ -492,6 +492,7 @@ def privacy_policy():
 async def start_prepare_session(
     audio: UploadFile = File(...),
     filename: str = Form("recording"),
+    speaker_timeline: Optional[str] = Form(None),
     user_id: str = Depends(get_current_user)
 ):
     _cleanup_stale_cache()
@@ -520,12 +521,21 @@ async def start_prepare_session(
             detail="Recording exceeds the 20-minute limit. Please trim and re-upload."
         )
 
+    # Parse WebRTC speaker timeline if provided (skips pyannote diarization)
+    parsed_timeline = None
+    if speaker_timeline:
+        try:
+            parsed_timeline = json.loads(speaker_timeline)
+            print(f"[{_sid(session_id)}] ▶ WebRTC speaker timeline provided ({len(parsed_timeline)} events)")
+        except Exception:
+            parsed_timeline = None
+
     job_q: stdlib_queue.Queue = stdlib_queue.Queue()
     _jobs[session_id] = job_q
 
     threading.Thread(
         target=_run_prepare_job,
-        args=(session_id, audio_path, user_id, filename),
+        args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline),
         daemon=True
     ).start()
 
@@ -533,7 +543,26 @@ async def start_prepare_session(
     return {"job_id": session_id}
 
 
-def _run_prepare_job(session_id, audio_path, user_id, filename):
+def _fill_speaker_gaps(diarization: list, total_duration: float, user_label: str = "SPEAKER_00") -> list:
+    """Fill gaps between remote participant segments with the user's label."""
+    if not diarization:
+        return [{"speaker": user_label, "start": 0.0, "end": total_duration}]
+
+    filled = []
+    prev_end = 0.0
+    for seg in sorted(diarization, key=lambda x: x["start"]):
+        if seg["start"] > prev_end + 0.5:
+            filled.append({"speaker": user_label, "start": round(prev_end, 3), "end": round(seg["start"], 3)})
+        filled.append(seg)
+        prev_end = max(prev_end, seg["end"])
+
+    if prev_end < total_duration - 0.5:
+        filled.append({"speaker": user_label, "start": round(prev_end, 3), "end": round(total_duration, 3)})
+
+    return filled
+
+
+def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s=None, speaker_timeline=None):
     def emit(step, message):
         if session_id in _jobs:
             _jobs[session_id].put({"event": "progress", "step": step, "message": message})
@@ -546,15 +575,30 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
             print(f"[{_sid(session_id)}] ✕ Cancelled before start")
             return
 
-        print(f"[{_sid(session_id)}] 1/3 Transcribing + diarizing...")
-        emit("transcribing", "Transcribing audio with Whisper…")
+        if speaker_timeline:
+            # WebRTC path: skip pyannote, use provided timeline + transcribe only
+            print(f"[{_sid(session_id)}] 1/3 Transcribing (WebRTC diarization provided)...")
+            emit("transcribing", "Transcribing audio with Whisper…")
+            transcript = transcriber.transcribe(audio_path)
+            emit("diarizing", "Using meeting speaker data…")
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_transcript = pool.submit(transcriber.transcribe, audio_path)
-            f_diarization = pool.submit(diarizer.diarize, audio_path)
-            transcript = f_transcript.result()
-            emit("diarizing", "Identifying speakers…")
-            diarization = f_diarization.result()
+            total_dur = audio_duration_s or (
+                max(s["end"] for s in transcript["segments"]) if transcript["segments"] else 0
+            )
+            diarization = _fill_speaker_gaps(speaker_timeline, total_dur)
+            print(f"[{_sid(session_id)}]    WebRTC timeline gap-filled: {len(diarization)} segments, "
+                  f"{len({s['speaker'] for s in diarization})} speakers")
+        else:
+            # Standard path: parallel transcription + pyannote diarization
+            print(f"[{_sid(session_id)}] 1/3 Transcribing + diarizing...")
+            emit("transcribing", "Transcribing audio with Whisper…")
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                f_transcript = pool.submit(transcriber.transcribe, audio_path)
+                f_diarization = pool.submit(diarizer.diarize, audio_path)
+                transcript = f_transcript.result()
+                emit("diarizing", "Identifying speakers…")
+                diarization = f_diarization.result()
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
@@ -571,57 +615,62 @@ def _run_prepare_job(session_id, audio_path, user_id, filename):
 
         voiceprint_match = None
         voiceprint_confidence = None
-
-        res = supabase_admin.table("user_voiceprints").select("embedding_json").eq(
-            "user_id", user_id
-        ).execute()
-        stored_vp = res.data[0] if res.data else None
-
         speaker_ids = sorted({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
 
-        if stored_vp and voiceprint_matcher.available:
-            raw = json.loads(stored_vp["embedding_json"])
-            stored_embs = [np.array(e) for e in raw] if isinstance(raw[0], list) else [np.array(raw)]
+        if speaker_timeline:
+            # WebRTC path: user is always the gap-filled "SPEAKER_00" label — skip voiceprint
+            detected_speaker = "SPEAKER_00"
+            print(f"[{_sid(session_id)}]    WebRTC mode — user auto-assigned to SPEAKER_00")
+        else:
+            # Standard path: run voiceprint matching to identify the user
+            res = supabase_admin.table("user_voiceprints").select("embedding_json").eq(
+                "user_id", user_id
+            ).execute()
+            stored_vp = res.data[0] if res.data else None
 
-            speaker_segs_map: dict = {}
-            for seg in diarization:
-                if seg["speaker"] != "UNKNOWN":
-                    speaker_segs_map.setdefault(seg["speaker"], []).append(seg)
+            if stored_vp and voiceprint_matcher.available:
+                raw = json.loads(stored_vp["embedding_json"])
+                stored_embs = [np.array(e) for e in raw] if isinstance(raw[0], list) else [np.array(raw)]
 
-            talk_times = {
-                sp: sum(s["end"] - s["start"] for s in segs)
-                for sp, segs in speaker_segs_map.items()
-            }
-            total_time = sum(talk_times.values()) or 1
+                speaker_segs_map: dict = {}
+                for seg in diarization:
+                    if seg["speaker"] != "UNKNOWN":
+                        speaker_segs_map.setdefault(seg["speaker"], []).append(seg)
 
-            vp_scores: dict = {}
-            for sp, segs in speaker_segs_map.items():
-                emb = voiceprint_matcher.extract_speaker_embedding(audio_path, segs)
-                if emb is not None:
-                    vp_scores[sp] = max(
-                        VoiceprintMatcher._cosine_similarity(emb, ref)
-                        for ref in stored_embs
-                    )
+                talk_times = {
+                    sp: sum(s["end"] - s["start"] for s in segs)
+                    for sp, segs in speaker_segs_map.items()
+                }
+                total_time = sum(talk_times.values()) or 1
 
-            if vp_scores:
-                best_vp = max(vp_scores, key=vp_scores.get)
-                best_score = vp_scores[best_vp]
+                vp_scores: dict = {}
+                for sp, segs in speaker_segs_map.items():
+                    emb = voiceprint_matcher.extract_speaker_embedding(audio_path, segs)
+                    if emb is not None:
+                        vp_scores[sp] = max(
+                            VoiceprintMatcher._cosine_similarity(emb, ref)
+                            for ref in stored_embs
+                        )
 
-                if best_score >= 0.55:
-                    voiceprint_match = best_vp
-                    voiceprint_confidence = best_score
-                    print(f"[{_sid(session_id)}]    Voice matched: {best_vp} (confidence {best_score:.2f})")
-                else:
-                    combined = {
-                        sp: 0.6 * vp_scores[sp] + 0.4 * (talk_times.get(sp, 0) / total_time)
-                        for sp in vp_scores
-                    }
-                    best_combined = max(combined, key=combined.get)
-                    voiceprint_match = best_combined
-                    voiceprint_confidence = best_score
-                    print(f"[{_sid(session_id)}]    Voice low-confidence ({best_score:.2f}) → blended to {best_combined}")
+                if vp_scores:
+                    best_vp = max(vp_scores, key=vp_scores.get)
+                    best_score = vp_scores[best_vp]
 
-        detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
+                    if best_score >= 0.55:
+                        voiceprint_match = best_vp
+                        voiceprint_confidence = best_score
+                        print(f"[{_sid(session_id)}]    Voice matched: {best_vp} (confidence {best_score:.2f})")
+                    else:
+                        combined = {
+                            sp: 0.6 * vp_scores[sp] + 0.4 * (talk_times.get(sp, 0) / total_time)
+                            for sp in vp_scores
+                        }
+                        best_combined = max(combined, key=combined.get)
+                        voiceprint_match = best_combined
+                        voiceprint_confidence = best_score
+                        print(f"[{_sid(session_id)}]    Voice low-confidence ({best_score:.2f}) → blended to {best_combined}")
+
+            detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
         _prepare_cache[session_id] = {
             "audio_path": audio_path,
@@ -996,23 +1045,26 @@ def get_sessions(user_id: str = Depends(get_current_user)):
         "user_id", user_id
     ).order("created_at", desc=True).execute()
 
-    return [
-        {
-            "session_id": s["id"],
-            "context": s["context"],
-            "filename": s.get("filename") or "recording",
-            "detected_speaker": s.get("detected_speaker") or "SPEAKER_00",
-            "speaker_confirmed": s.get("speaker_confirmed") or False,
-            "created_at": s["created_at"],
-            "insights": json.loads(s["insights_json"]),
-            "signals": json.loads(s["signals_json"]),
-            "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
-            "available_speakers": list(json.loads(s["all_speakers_signals_json"]).keys())
-                if s.get("all_speakers_signals_json") else [],
-            "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
-        }
-        for s in res.data
-    ]
+    out = []
+    for s in res.data:
+        try:
+            out.append({
+                "session_id": s["id"],
+                "context": s["context"],
+                "filename": s.get("filename") or "recording",
+                "detected_speaker": s.get("detected_speaker") or "SPEAKER_00",
+                "speaker_confirmed": s.get("speaker_confirmed") or False,
+                "created_at": s["created_at"],
+                "insights": json.loads(s["insights_json"]),
+                "signals": json.loads(s["signals_json"]),
+                "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
+                "available_speakers": list(json.loads(s["all_speakers_signals_json"]).keys())
+                    if s.get("all_speakers_signals_json") else [],
+                "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
+            })
+        except Exception as e:
+            print(f"[sessions] Skipping malformed session {s.get('id', '?')}: {e}")
+    return out
 
 
 @app.get("/api/trends")

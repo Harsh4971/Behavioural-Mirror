@@ -34,6 +34,7 @@ function MiniScoreBar({ score }) {
 export default function HistoryView({ onSelect, active = false }) {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [contextFilter, setContextFilter] = useState("all")
@@ -51,18 +52,39 @@ export default function HistoryView({ onSelect, active = false }) {
     }
   }
 
-  useEffect(() => {
-    if (!active) return
+  const loadSessions = () => {
     setLoading(true)
+    setLoadError(false)
     api.get("/api/sessions")
       .then(res => setSessions(res.data))
-      .catch(err => console.error(err))
+      .catch(err => { console.error(err); setLoadError(true) })
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    if (!active) return
+    loadSessions()
   }, [active])
 
   if (loading) return (
     <div style={{ textAlign: "center", padding: 48, color: "#4a4865" }}>
       Loading sessions…
+    </div>
+  )
+
+  if (loadError) return (
+    <div style={{ textAlign: "center", padding: 48 }}>
+      <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+      <p style={{ color: "#f87171", fontSize: 14, marginBottom: 12 }}>
+        Could not load sessions — the server may be starting up.
+      </p>
+      <button onClick={loadSessions} style={{
+        background: "rgba(29,78,216,0.1)", border: "1px solid rgba(29,78,216,0.3)",
+        borderRadius: 8, padding: "8px 20px", color: "#5b9cf6",
+        fontSize: 13, fontWeight: 500, cursor: "pointer",
+      }}>
+        Retry
+      </button>
     </div>
   )
 
