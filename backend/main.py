@@ -17,6 +17,17 @@ logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 logging.getLogger("lightning_fabric").setLevel(logging.ERROR)
 logging.getLogger("pyannote").setLevel(logging.ERROR)
 
+logger = logging.getLogger("mirror")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+
+# Maximum speakers to extract detailed signals for per session.
+# Prevents OOM on HF Spaces when a large meeting produces many speaker labels.
+MAX_SPEAKERS_TO_ANALYZE = 4
+
 from pipeline.transcriber import Transcriber
 from pipeline.diarizer import Diarizer
 from pipeline.signal_extractor import SignalExtractor
@@ -544,10 +555,44 @@ async def start_prepare_session(
 
 
 def _fill_speaker_gaps(diarization: list, total_duration: float, user_label: str = "SPEAKER_00") -> list:
-    """Fill gaps between remote participant segments with the user's label."""
+    """Merge WebRTC speaker events into a continuous timeline.
+
+    Two modes:
+    - Explicit user VAD present (user_label already in timeline): the injector captured
+      the local mic, so we have ground-truth user speaking segments. Just sort the timeline
+      and return — gaps are silence, NOT the user. Gap-filling would inflate the user's
+      talk ratio by attributing silence between remote speakers to the user.
+    - No explicit user VAD (user_label absent): fall back to the original gap-fill
+      behaviour — attribute all gaps between remote speakers to the user (heuristic for
+      when getUserMedia was not intercepted by the injector).
+    """
     if not diarization:
+        logger.warning("[gap-fill] Empty diarization — attributing entire duration to %s", user_label)
         return [{"speaker": user_label, "start": 0.0, "end": total_duration}]
 
+    has_user_vad = any(s["speaker"] == user_label for s in diarization)
+
+    if has_user_vad:
+        # User's mic VAD events are explicit. Trust them — don't add synthetic user segments.
+        # Gaps between events are silence periods; merge_transcript_with_speakers will default
+        # unmatched transcript segments to SPEAKER_00 anyway for the actual analysis.
+        sorted_segs = sorted(diarization, key=lambda x: x["start"])
+        logger.info(
+            "[gap-fill] Explicit %s VAD found — returning sorted timeline (%d segs, no gap-fill). "
+            "Speakers: %s",
+            user_label,
+            len(sorted_segs),
+            sorted({s["speaker"] for s in sorted_segs}),
+        )
+        return sorted_segs
+
+    # ── No explicit user VAD — gap-fill with user_label (heuristic) ──────────────
+    logger.warning(
+        "[gap-fill] No %s events in timeline — gaps between remote speakers will be attributed to %s. "
+        "This means getUserMedia was NOT intercepted (mic joined before injector ran). "
+        "Talk ratio for user may be inflated.",
+        user_label, user_label,
+    )
     filled = []
     prev_end = 0.0
     for seg in sorted(diarization, key=lambda x: x["start"]):
@@ -572,55 +617,100 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
     try:
         if session_id in _cancelled:
             _cancelled.discard(session_id)
-            print(f"[{_sid(session_id)}] ✕ Cancelled before start")
+            logger.info("[%s] ✕ Cancelled before start", _sid(session_id))
             return
 
         if speaker_timeline:
-            # WebRTC path: skip pyannote, use provided timeline + transcribe only
-            print(f"[{_sid(session_id)}] 1/3 Transcribing (WebRTC diarization provided)...")
+            # ── WebRTC path: skip pyannote, use provided timeline + transcribe only ────
+            speaker_labels = sorted({e["speaker"] for e in speaker_timeline})
+            has_user_vad = "SPEAKER_00" in speaker_labels
+            logger.info(
+                "[%s] 1/3 Transcribing (WebRTC timeline provided: %d events, speakers: %s, has_user_vad: %s)",
+                _sid(session_id), len(speaker_timeline), speaker_labels, has_user_vad,
+            )
+            if not has_user_vad:
+                logger.warning(
+                    "[%s] WARNING: No SPEAKER_00 in WebRTC timeline — local mic was NOT captured by injector. "
+                    "Gap-fill will be used (may inflate user talk ratio).",
+                    _sid(session_id),
+                )
             emit("transcribing", "Transcribing audio with Whisper…")
             transcript = transcriber.transcribe(audio_path)
+            logger.info(
+                "[%s]    Transcription done: %d segments, ~%d words",
+                _sid(session_id), len(transcript.get("segments", [])),
+                sum(len(s.get("words", [])) for s in transcript.get("segments", [])),
+            )
             emit("diarizing", "Using meeting speaker data…")
 
             total_dur = audio_duration_s or (
-                max(s["end"] for s in transcript["segments"]) if transcript["segments"] else 0
+                max(s["end"] for s in transcript["segments"]) if transcript.get("segments") else 0
             )
+            logger.info("[%s]    Audio duration: %.1fs", _sid(session_id), total_dur)
             diarization = _fill_speaker_gaps(speaker_timeline, total_dur)
-            print(f"[{_sid(session_id)}]    WebRTC timeline gap-filled: {len(diarization)} segments, "
-                  f"{len({s['speaker'] for s in diarization})} speakers")
+            unique_speakers = {s["speaker"] for s in diarization}
+            logger.info(
+                "[%s]    WebRTC timeline processed: %d segments, %d unique speakers: %s",
+                _sid(session_id), len(diarization), len(unique_speakers), sorted(unique_speakers),
+            )
         else:
-            # Standard path: parallel transcription + pyannote diarization
-            print(f"[{_sid(session_id)}] 1/3 Transcribing + diarizing...")
+            # ── Standard path: parallel transcription + pyannote diarization ────────
+            logger.info("[%s] 1/3 Transcribing + diarizing (pyannote path)...", _sid(session_id))
             emit("transcribing", "Transcribing audio with Whisper…")
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 f_transcript = pool.submit(transcriber.transcribe, audio_path)
                 f_diarization = pool.submit(diarizer.diarize, audio_path)
                 transcript = f_transcript.result()
+                logger.info(
+                    "[%s]    Transcription done: %d segments",
+                    _sid(session_id), len(transcript.get("segments", [])),
+                )
                 emit("diarizing", "Identifying speakers…")
                 diarization = f_diarization.result()
+                logger.info(
+                    "[%s]    Pyannote done: %d segments, speakers: %s",
+                    _sid(session_id), len(diarization),
+                    sorted({s["speaker"] for s in diarization}),
+                )
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
             if os.path.exists(audio_path): os.remove(audio_path)
-            print(f"[{_sid(session_id)}] ✕ Cancelled after transcription")
+            logger.info("[%s] ✕ Cancelled after transcription", _sid(session_id))
             return
 
         merged = diarizer.merge_transcript_with_speakers(
             transcript["segments"], diarization
         )
+        logger.info("[%s]    Merged transcript: %d segments", _sid(session_id), len(merged))
 
-        print(f"[{_sid(session_id)}] 2/3 Detecting voice ({len({s['speaker'] for s in diarization})} speakers found)...")
+        unique_speakers = {s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"}
+        logger.info("[%s] 2/3 Detecting voice (%d speakers found)...", _sid(session_id), len(unique_speakers))
         emit("detecting", "Detecting your voice…")
 
         voiceprint_match = None
         voiceprint_confidence = None
-        speaker_ids = sorted({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
+        speaker_ids = sorted(unique_speakers)
 
         if speaker_timeline:
-            # WebRTC path: user is always the gap-filled "SPEAKER_00" label — skip voiceprint
+            # WebRTC path: user is always SPEAKER_00 — skip voiceprint
             detected_speaker = "SPEAKER_00"
-            print(f"[{_sid(session_id)}]    WebRTC mode — user auto-assigned to SPEAKER_00")
+            logger.info("[%s]    WebRTC mode — user auto-assigned to SPEAKER_00", _sid(session_id))
+
+            # Validate that SPEAKER_00 segments exist in merged transcript
+            user_merged_segs = [s for s in merged if s.get("speaker") == "SPEAKER_00"]
+            logger.info(
+                "[%s]    SPEAKER_00 segments in merged transcript: %d",
+                _sid(session_id), len(user_merged_segs),
+            )
+            if len(user_merged_segs) == 0:
+                logger.warning(
+                    "[%s] WARNING: No SPEAKER_00 transcript segments found! "
+                    "User's speech may not have been correctly attributed. "
+                    "Analysis will run but signals may be zero/empty.",
+                    _sid(session_id),
+                )
         else:
             # Standard path: run voiceprint matching to identify the user
             res = supabase_admin.table("user_voiceprints").select("embedding_json").eq(
@@ -659,7 +749,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
                     if best_score >= 0.55:
                         voiceprint_match = best_vp
                         voiceprint_confidence = best_score
-                        print(f"[{_sid(session_id)}]    Voice matched: {best_vp} (confidence {best_score:.2f})")
+                        logger.info("[%s]    Voice matched: %s (confidence %.2f)", _sid(session_id), best_vp, best_score)
                     else:
                         combined = {
                             sp: 0.6 * vp_scores[sp] + 0.4 * (talk_times.get(sp, 0) / total_time)
@@ -668,7 +758,15 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
                         best_combined = max(combined, key=combined.get)
                         voiceprint_match = best_combined
                         voiceprint_confidence = best_score
-                        print(f"[{_sid(session_id)}]    Voice low-confidence ({best_score:.2f}) → blended to {best_combined}")
+                        logger.warning(
+                            "[%s]    Voice low-confidence (%.2f) → blended to %s",
+                            _sid(session_id), best_score, best_combined,
+                        )
+            else:
+                if not stored_vp:
+                    logger.info("[%s]    No voiceprint enrolled — defaulting to first speaker", _sid(session_id))
+                elif not voiceprint_matcher.available:
+                    logger.warning("[%s]    Voiceprint matcher unavailable — defaulting to first speaker", _sid(session_id))
 
             detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
@@ -694,12 +792,13 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
 
         if session_id in _jobs:
             _jobs[session_id].put({"event": "done", "data": result_data})
-        print(f"[{_sid(session_id)}] ✓ Prepare done — ready for speaker confirmation")
+        logger.info("[%s] ✓ Prepare done — detected_speaker: %s", _sid(session_id), detected_speaker)
 
     except Exception as e:
+        import traceback
         if os.path.exists(audio_path):
             os.remove(audio_path)
-        print(f"[{_sid(session_id)}] ✕ Prepare error: {e}")
+        logger.error("[%s] ✕ Prepare error: %s\n%s", _sid(session_id), e, traceback.format_exc())
         if session_id in _jobs:
             _jobs[session_id].put({"event": "error", "message": str(e)})
 
@@ -778,11 +877,12 @@ async def start_finalize_session(
         daemon=True
     ).start()
 
-    print(f"[{_sid(session_id)}] ▶ Speaker confirmed ({confirmed_speaker}) — starting analysis")
+    logger.info("[%s] ▶ Speaker confirmed (%s) — starting finalize job", _sid(session_id), confirmed_speaker)
     return {"job_id": session_id}
 
 
 def _run_finalize_job(session_id, confirmed_speaker):
+    import traceback as _tb
     job_key = f"finalize_{session_id}"
 
     def emit(step, message):
@@ -791,6 +891,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
 
     cached = _prepare_cache.get(session_id)
     if not cached:
+        logger.error("[%s] ✕ Finalize: session not in cache (expired?)", _sid(session_id))
         if job_key in _jobs:
             _jobs[job_key].put({"event": "error", "message": "Session expired."})
         return
@@ -805,59 +906,134 @@ def _run_finalize_job(session_id, confirmed_speaker):
     try:
         if session_id in _cancelled:
             _cancelled.discard(session_id)
-            print(f"[{_sid(session_id)}] ✕ Cancelled before finalize")
+            logger.info("[%s] ✕ Cancelled before finalize", _sid(session_id))
             return
 
-        print(f"[{_sid(session_id)}] 1/4 Extracting behavioral signals...")
+        # ── Step 1: Signal extraction ─────────────────────────────────
+        logger.info("[%s] 1/4 Extracting behavioral signals...", _sid(session_id))
         emit("extracting", "Extracting behavioral signals…")
+
         all_speaker_ids = list({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
+        logger.info("[%s]    Diarization speakers (%d): %s", _sid(session_id), len(all_speaker_ids), all_speaker_ids)
+
+        if confirmed_speaker not in all_speaker_ids:
+            logger.warning(
+                "[%s]    WARNING: confirmed_speaker '%s' not in diarization — will extract anyway",
+                _sid(session_id), confirmed_speaker
+            )
+
+        # Cap extraction to MAX_SPEAKERS_TO_ANALYZE to prevent OOM on multi-speaker meetings.
+        # Always keep confirmed_speaker (= user) and SPEAKER_00; fill remaining slots with
+        # speakers ranked by total talk time so the most active participants are included.
+        def _speaker_talk_time(sp):
+            return sum(s["end"] - s["start"] for s in diarization if s["speaker"] == sp)
+
+        must_have = {confirmed_speaker, "SPEAKER_00"} & set(all_speaker_ids)
+        remaining = [sp for sp in all_speaker_ids if sp not in must_have]
+        remaining.sort(key=_speaker_talk_time, reverse=True)
+        speakers_to_extract = list(must_have) + remaining
+        if len(speakers_to_extract) > MAX_SPEAKERS_TO_ANALYZE:
+            dropped = speakers_to_extract[MAX_SPEAKERS_TO_ANALYZE:]
+            speakers_to_extract = speakers_to_extract[:MAX_SPEAKERS_TO_ANALYZE]
+            logger.warning(
+                "[%s]    Capping extraction at %d speakers (dropping %d to prevent OOM): %s",
+                _sid(session_id), MAX_SPEAKERS_TO_ANALYZE, len(dropped), dropped
+            )
+        else:
+            logger.info(
+                "[%s]    Will extract signals for %d speaker(s): %s",
+                _sid(session_id), len(speakers_to_extract), speakers_to_extract
+            )
+
         all_speakers_signals = {}
-        for sp in all_speaker_ids:
-            all_speakers_signals[sp] = SignalExtractor(audio_path, merged, sp).extract_all()
+        for sp in speakers_to_extract:
+            sp_segs = [s for s in diarization if s["speaker"] == sp]
+            sp_talk = _speaker_talk_time(sp)
+            logger.info(
+                "[%s]    Extracting signals for %s (%d segments, %.1fs talk time)…",
+                _sid(session_id), sp, len(sp_segs), sp_talk
+            )
+            try:
+                all_speakers_signals[sp] = SignalExtractor(audio_path, merged, sp).extract_all()
+                logger.info("[%s]    ✓ %s extraction complete", _sid(session_id), sp)
+            except Exception as sp_err:
+                logger.error(
+                    "[%s]    ✕ Signal extraction FAILED for %s: %s\n%s",
+                    _sid(session_id), sp, sp_err, _tb.format_exc()
+                )
+                # Continue — don't let one speaker's failure abort the whole job
 
         signals = all_speakers_signals.get(confirmed_speaker)
         if signals is None:
-            signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
+            logger.warning(
+                "[%s]    confirmed_speaker %s not in extracted signals — extracting now",
+                _sid(session_id), confirmed_speaker
+            )
+            try:
+                signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
+                all_speakers_signals[confirmed_speaker] = signals
+                logger.info("[%s]    ✓ Fallback extraction for %s complete", _sid(session_id), confirmed_speaker)
+            except Exception as fb_err:
+                logger.error(
+                    "[%s]    ✕ Fallback extraction FAILED for %s: %s\n%s",
+                    _sid(session_id), confirmed_speaker, fb_err, _tb.format_exc()
+                )
+                raise
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
-            if os.path.exists(audio_path): os.remove(audio_path)
-            print(f"[{_sid(session_id)}] ✕ Cancelled after signal extraction")
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+            logger.info("[%s] ✕ Cancelled after signal extraction", _sid(session_id))
             return
 
-        print(f"[{_sid(session_id)}] 2/4 Scoring dimensions...")
+        # ── Step 2: Dimension scoring ─────────────────────────────────
+        logger.info("[%s] 2/4 Scoring behavioral dimensions...", _sid(session_id))
         emit("scoring", "Scoring behavioral dimensions…")
         dimensions = dimension_scorer.score_all(signals)
+        logger.info("[%s]    Dimensions: %s", _sid(session_id), {k: round(v, 3) for k, v in (dimensions or {}).items()})
 
-        print(f"[{_sid(session_id)}] 3/4 Detecting context + generating insights...")
+        # ── Step 3: Context detection + insight generation ────────────
+        logger.info("[%s] 3/4 Detecting context + generating insights...", _sid(session_id))
         emit("generating", "Generating insights with AI…")
         sample_text = _sample_transcript(merged)
         full_text = _full_transcript(merged)
+
+        if not sample_text.strip():
+            logger.warning("[%s]    WARNING: sample_text is EMPTY — transcript may be blank", _sid(session_id))
+
         conversation_types = context_detector.detect(sample_text)
         primary_context = conversation_types[0]
-        print(f"[{_sid(session_id)}]    Context: {', '.join(conversation_types)}")
+        logger.info("[%s]    Context: %s (primary: %s)", _sid(session_id), conversation_types, primary_context)
 
         baseline = _get_context_baseline(user_id, primary_context)
         session_history = _get_user_session_history(user_id)
         resonance_calibration = _get_resonance_calibration(user_id)
 
+        logger.info("[%s]    Calling insight_gen.generate...", _sid(session_id))
         insights = insight_gen.generate(
             signals, primary_context, baseline, full_text, dimensions,
             session_history=session_history,
             resonance_calibration=resonance_calibration,
             conversation_types=conversation_types,
         )
+        logger.info("[%s]    ✓ Insights generated (%d keys)", _sid(session_id), len(insights))
 
         fingerprint = insights.pop("fingerprint", None)
 
-        print(f"[{_sid(session_id)}] 4/4 Generating reflection questions...")
+        # ── Step 4: Reflection questions ──────────────────────────────
+        logger.info("[%s] 4/4 Generating reflection questions...", _sid(session_id))
         emit("reflecting", "Generating reflection questions…")
         reflection_questions = insight_gen.generate_reflection_questions(
             signals, insights, full_text, primary_context
         )
         if reflection_questions:
             insights["reflection_questions"] = reflection_questions
+            logger.info("[%s]    ✓ %d reflection questions generated", _sid(session_id), len(reflection_questions))
+        else:
+            logger.warning("[%s]    WARNING: No reflection questions returned", _sid(session_id))
 
+        # ── Persist ───────────────────────────────────────────────────
         _update_voiceprint(user_id, audio_path, diarization, confirmed_speaker)
         _save_session(
             session_id, user_id, signals, insights, dimensions,
@@ -866,6 +1042,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
             fingerprint=fingerprint,
             all_speakers_signals=all_speakers_signals
         )
+        logger.info("[%s]    ✓ Session saved to Supabase", _sid(session_id))
 
         # Trigger background consolidation if user has enough sessions
         try:
@@ -886,7 +1063,15 @@ def _run_finalize_job(session_id, confirmed_speaker):
             os.remove(audio_path)
         del _prepare_cache[session_id]
 
-        print(f"[{_sid(session_id)}] ✓ Analysis complete — saved to Supabase")
+        # Evict profile caches so the next GET /api/profile regenerates with the new session
+        for key in list(_personality_cache.keys()):
+            if key.startswith(f"{user_id}:"):
+                del _personality_cache[key]
+        for key in list(_mirror_feed_cache.keys()):
+            if key.startswith(f"{user_id}:"):
+                del _mirror_feed_cache[key]
+
+        logger.info("[%s] ✓ Finalize complete — confirmed_speaker: %s", _sid(session_id), confirmed_speaker)
         result_data = {
             "session_id": session_id,
             "signals": signals,
@@ -906,7 +1091,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
         if os.path.exists(audio_path):
             os.remove(audio_path)
         _prepare_cache.pop(session_id, None)
-        print(f"[{_sid(session_id)}] ✕ Finalize error: {e}")
+        logger.error("[%s] ✕ Finalize error: %s\n%s", _sid(session_id), e, _tb.format_exc())
         if job_key in _jobs:
             _jobs[job_key].put({"event": "error", "message": str(e)})
 
@@ -1276,33 +1461,63 @@ def get_profile(user_id: str = Depends(get_current_user)):
             if mf_res.data:
                 row = mf_res.data[0]
                 if row.get("mirror_feed_session_count") == n * _MF_VERSION and row.get("mirror_feed_json"):
-                    mirror_feed = json.loads(row["mirror_feed_json"])
+                    parsed_feed = json.loads(row["mirror_feed_json"])
+                    if parsed_feed:  # discard any previously-cached empty lists
+                        mirror_feed = parsed_feed
         except Exception:
             pass
 
     if mirror_feed is None:
+        def _session_text(p: dict) -> str:
+            """Best available behavioral text for this session, richest first."""
+            ins = p.get("ins", {})
+            for val in [
+                p.get("fingerprint"),
+                ins.get("summary_sentence"),
+                ins.get("conversation_summary"),
+            ]:
+                if val and isinstance(val, str) and val.strip() not in ("", "Session analyzed."):
+                    return val.strip()
+            # Last resort: compact signal summary so the session still contributes data
+            try:
+                sig = p["sig"]
+                talk = round(sig["talk_ratio"]["user_ratio"] * 100)
+                wpm = round(sig["speech_rate"]["overall_wpm"])
+                filler = round(sig["filler_words"]["rate_per_100_words"], 1)
+                return f"Talk ratio {talk}%, speech rate {wpm} wpm, filler rate {filler}/100 words."
+            except Exception:
+                return ""
+
         feed_sessions = [
             {
                 "context": p["context"],
                 "date": p["date"][:10],
-                "fingerprint": p.get("fingerprint") or "",
-                "notable_pattern": p["ins"].get("notable_pattern", ""),
+                "fingerprint": _session_text(p),
+                "notable_pattern": p["ins"].get("notable_pattern") or "",
             }
             for p in parsed
         ]
         user_summary = _get_user_summary(user_id)
         mirror_feed = mirror_feed_synth.synthesize(feed_sessions, user_summary=user_summary)
-        try:
-            supabase_admin.table("user_profiles").upsert({
-                "user_id": user_id,
-                "mirror_feed_json": json.dumps(mirror_feed),
-                "mirror_feed_session_count": n * _MF_VERSION,
-                "updated_at": _utcnow(),
-            }).execute()
-        except Exception:
-            pass
 
-    _mirror_feed_cache[mf_cache_key] = mirror_feed
+        # Only cache a successful result — never persist an empty feed,
+        # so a Groq failure or sparse-data session doesn't suppress the feed permanently.
+        if mirror_feed:
+            try:
+                supabase_admin.table("user_profiles").upsert({
+                    "user_id": user_id,
+                    "mirror_feed_json": json.dumps(mirror_feed),
+                    "mirror_feed_session_count": n * _MF_VERSION,
+                    "updated_at": _utcnow(),
+                }).execute()
+            except Exception:
+                pass
+            _mirror_feed_cache[mf_cache_key] = mirror_feed
+        else:
+            mirror_feed = []  # return empty to caller but don't cache it
+
+    if mirror_feed and mf_cache_key not in _mirror_feed_cache:
+        _mirror_feed_cache[mf_cache_key] = mirror_feed
 
     return {
         "insufficient_data": False,
