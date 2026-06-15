@@ -148,38 +148,6 @@ function ObservationCard({ obs, sessionId }) {
   )
 }
 
-function ReflectCard({ item, index }) {
-  const [open, setOpen] = useState(false)
-  const accent = ["#818cf8", "#5b9cf6", "#0891b2"][index % 3]
-  return (
-    <div style={{ border: "1px solid #1e2438", borderRadius: 12,
-      background: "#151922", overflow: "hidden", cursor: "pointer" }}
-      onClick={() => setOpen(v => !v)}>
-      <div style={{ padding: "16px 18px", display: "flex",
-        justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: accent,
-            minWidth: 20, marginTop: 1 }}>Q{index + 1}</span>
-          <p style={{ margin: 0, fontSize: 14, color: "#f0eeff", lineHeight: 1.6,
-            fontWeight: 500 }}>
-            {item.question}
-          </p>
-        </div>
-        <span style={{ color: "#4a4865", fontSize: 11, flexShrink: 0, marginTop: 3 }}>
-          {open ? "▲" : "▼"}
-        </span>
-      </div>
-      {open && (
-        <div style={{ padding: "14px 18px", borderTop: "1px solid #1e2438",
-          background: "#131827" }}>
-          <p style={{ margin: 0, fontSize: 13, color: "#8b89aa", lineHeight: 1.7 }}>
-            {item.answer}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
 
 const speakerLabel = (id) => {
   if (!id) return "Unknown"
@@ -238,7 +206,7 @@ export default function ResultsView({ results, onBack }) {
     }
   }
 
-  const tabs = ["overview", "dimensions", "coaching", "reflect", "signals"]
+  const tabs = ["overview", "dimensions", "coaching", "signals"]
   const otherSpeakers = (liveResults.available_speakers || []).filter(s => s !== detected_speaker)
 
   return (
@@ -591,34 +559,6 @@ export default function ResultsView({ results, onBack }) {
               </div>
             )}
           </div>
-        </Reveal>
-      )}
-
-      {/* ── REFLECT TAB ── */}
-      {activeTab === "reflect" && (
-        <Reveal>
-          <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 20, lineHeight: 1.6 }}>
-            Questions grounded in what happened in this conversation. Tap any to read the insight.
-          </p>
-          {(!insights.reflection_questions || insights.reflection_questions.length === 0) ? (
-            <div style={{ textAlign: "center", padding: 48, color: "#4a4865" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>💭</div>
-              <p style={{ fontSize: 14, color: "#8b89aa" }}>
-                Reflection questions not available for this session.
-              </p>
-              <p style={{ fontSize: 12, color: "#4a4865", marginTop: 4 }}>
-                New sessions will include this automatically.
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {insights.reflection_questions.map((item, i) => (
-                <RevealItem key={i} index={i}>
-                  <ReflectCard item={item} index={i} />
-                </RevealItem>
-              ))}
-            </div>
-          )}
         </Reveal>
       )}
 

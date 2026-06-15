@@ -988,13 +988,13 @@ def _run_finalize_job(session_id, confirmed_speaker):
             return
 
         # ── Step 2: Dimension scoring ─────────────────────────────────
-        logger.info("[%s] 2/4 Scoring behavioral dimensions...", _sid(session_id))
+        logger.info("[%s] 2/3 Scoring behavioral dimensions...", _sid(session_id))
         emit("scoring", "Scoring behavioral dimensions…")
         dimensions = dimension_scorer.score_all(signals)
         logger.info("[%s]    Dimensions: %s", _sid(session_id), {k: round(v, 3) for k, v in (dimensions or {}).items()})
 
         # ── Step 3: Context detection + insight generation ────────────
-        logger.info("[%s] 3/4 Detecting context + generating insights...", _sid(session_id))
+        logger.info("[%s] 3/3 Detecting context + generating insights...", _sid(session_id))
         emit("generating", "Generating insights with AI…")
         sample_text = _sample_transcript(merged)
         full_text = _full_transcript(merged)
@@ -1020,18 +1020,6 @@ def _run_finalize_job(session_id, confirmed_speaker):
         logger.info("[%s]    ✓ Insights generated (%d keys)", _sid(session_id), len(insights))
 
         fingerprint = insights.pop("fingerprint", None)
-
-        # ── Step 4: Reflection questions ──────────────────────────────
-        logger.info("[%s] 4/4 Generating reflection questions...", _sid(session_id))
-        emit("reflecting", "Generating reflection questions…")
-        reflection_questions = insight_gen.generate_reflection_questions(
-            signals, insights, full_text, primary_context
-        )
-        if reflection_questions:
-            insights["reflection_questions"] = reflection_questions
-            logger.info("[%s]    ✓ %d reflection questions generated", _sid(session_id), len(reflection_questions))
-        else:
-            logger.warning("[%s]    WARNING: No reflection questions returned", _sid(session_id))
 
         # ── Persist ───────────────────────────────────────────────────
         _update_voiceprint(user_id, audio_path, diarization, confirmed_speaker)
@@ -1193,12 +1181,6 @@ async def reanalyze_session(
     )
 
     fingerprint = insights.pop("fingerprint", existing_fingerprint)
-
-    reflection_questions = insight_gen.generate_reflection_questions(
-        signals, insights, transcript_text, primary_context
-    )
-    if reflection_questions:
-        insights["reflection_questions"] = reflection_questions
 
     supabase_admin.table("sessions").update({
         "detected_speaker": confirmed_speaker,
