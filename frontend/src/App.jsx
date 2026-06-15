@@ -9,6 +9,7 @@ import ResultsView from "./components/ResultsView"
 import HistoryView from "./components/HistoryView"
 import ProfileView from "./components/ProfileView"
 import HowItWorksView from "./components/HowItWorksView"
+import MeetStatusBanner from "./components/MeetStatusBanner"
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -50,10 +51,28 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setAuthLoading(false)
+      // Sync token on initial load so background worker can authenticate Meet uploads
+      if (session && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+        chrome.runtime.sendMessage({
+          action: 'sync_token',
+          token: session.access_token,
+          userId: session.user.id,
+        }).catch(() => {})
+      }
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) setEnrollState("checking")
+      if (session) {
+        setEnrollState("checking")
+        // Keep background service worker's JWT in sync for Meet recording
+        if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+          chrome.runtime.sendMessage({
+            action: 'sync_token',
+            token: session.access_token,
+            userId: session.user.id,
+          }).catch(() => {})
+        }
+      }
     })
     return () => subscription.unsubscribe()
   }, [])
@@ -62,8 +81,10 @@ export default function App() {
     if (!session) return
     api.get("/api/voiceprint/status")
       .then(res => setEnrollState(res.data.enrolled ? "done" : "needed"))
-      .catch((e) => {
-        setEnrollState(e.response ? "needed" : "done")
+      .catch(() => {
+        // Any error (network, 401, 500) — don't block access with enrollment.
+        // Only an explicit enrolled:false response should trigger the flow.
+        setEnrollState("done")
       })
   }, [session])
 
@@ -80,7 +101,7 @@ export default function App() {
   )
 
   if (enrollState === "needed") return (
-    <div style={{ maxWidth: 780, margin: "0 auto", padding: 24 }}>
+    <div style={{ maxWidth: 480, margin: "0 auto", padding: 24 }}>
       <div style={{ marginBottom: 28, display: "flex", alignItems: "center", gap: 10 }}>
         <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
           <defs>
@@ -128,7 +149,7 @@ export default function App() {
       }} />
     </div>
 
-    <div style={{ maxWidth: 780, margin: "0 auto", padding: 24, position: "relative", zIndex: 1 }}>
+    <div style={{ maxWidth: 600, margin: "0 auto", padding: 24, position: "relative", zIndex: 1 }}>
 
       {/* Header */}
       <div style={{ marginBottom: 28, display: "flex",
@@ -214,12 +235,24 @@ export default function App() {
                       {label}
                     </button>
                   ))}
+                  <a
+                    href="https://harsh200415-mirror-backend.hf.space/privacy"
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "block", padding: "10px 14px",
+                      fontSize: 13, color: "#4a4d6a", textDecoration: "none" }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#8b89aa"}
+                    onMouseLeave={e => e.currentTarget.style.color = "#4a4d6a"}>
+                    Privacy Policy
+                  </a>
                 </div>
               )}
             </>
           )}
         </div>
       </div>
+
+      <MeetStatusBanner />
 
       {/* Nav */}
       <nav style={{ display: "flex", gap: 0, marginBottom: 32,

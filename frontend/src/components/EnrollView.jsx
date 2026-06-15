@@ -134,15 +134,22 @@ export default function EnrollView({ onEnrolled, onSkip }) {
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
             Train your voice
           </h2>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[1, 2, 3].map(r => (
-              <div key={r} style={{
-                width: 10, height: 10, borderRadius: "50%",
-                background: r < round ? G : r === round ? "rgba(29,78,216,0.35)" : "#1e2438",
-                boxShadow: r <= round ? "0 0 6px rgba(29,78,216,0.35)" : "none",
-                transition: "all 0.3s",
-              }} />
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={onSkip} disabled={state === "recording"}
+              style={{ background: "none", border: "none", cursor: state === "recording" ? "not-allowed" : "pointer",
+                fontSize: 12, color: "#4a4865", padding: 0, textDecoration: "underline" }}>
+              Skip
+            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[1, 2, 3].map(r => (
+                <div key={r} style={{
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: r < round ? G : r === round ? "rgba(29,78,216,0.35)" : "#1e2438",
+                  boxShadow: r <= round ? "0 0 6px rgba(29,78,216,0.35)" : "none",
+                  transition: "all 0.3s",
+                }} />
+              ))}
+            </div>
           </div>
         </div>
         <p style={{ fontSize: 14, color: "#8b89aa", margin: 0, lineHeight: 1.65 }}>

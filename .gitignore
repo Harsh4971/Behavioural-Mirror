@@ -19,3 +19,6 @@ venv/
 
 # Temporary audio files
 /tmp/behavioral_mirror/
+
+# Chrome extension private key — never commit this
+extension.pem

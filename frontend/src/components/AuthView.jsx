@@ -30,7 +30,12 @@ export default function AuthView({ onAuth }) {
     setError("")
     setMessage("")
     try {
-      if (mode === "signup") {
+      if (mode === "reset") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email)
+        if (error) throw error
+        setMessage("Password reset link sent — check your email.")
+        setMode("login")
+      } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
         setMessage("Check your email for a confirmation link.")
@@ -46,9 +51,54 @@ export default function AuthView({ onAuth }) {
     }
   }
 
+  const isExtension = typeof chrome !== "undefined" && !!chrome.runtime?.id
+
   const handleGoogle = async () => {
     setLoading(true)
     setError("")
+
+    if (isExtension) {
+      try {
+        const redirectUrl = chrome.identity.getRedirectURL()
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: redirectUrl, skipBrowserRedirect: true },
+        })
+        if (error || !data?.url) throw error || new Error("No auth URL returned")
+
+        chrome.identity.launchWebAuthFlow(
+          { url: data.url, interactive: true },
+          async (callbackUrl) => {
+            if (chrome.runtime.lastError || !callbackUrl) {
+              setError("Google sign-in was cancelled or failed.")
+              setLoading(false)
+              return
+            }
+            const hash = new URL(callbackUrl).hash.substring(1)
+            const params = new URLSearchParams(hash)
+            const accessToken = params.get("access_token")
+            const refreshToken = params.get("refresh_token") || ""
+            if (!accessToken) {
+              setError("Could not retrieve session from Google.")
+              setLoading(false)
+              return
+            }
+            const { data: s, error: se } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            })
+            if (se) setError(se.message)
+            else onAuth(s.session)
+            setLoading(false)
+          }
+        )
+      } catch (e) {
+        setError(e.message)
+        setLoading(false)
+      }
+      return
+    }
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
@@ -111,9 +161,19 @@ export default function AuthView({ onAuth }) {
                 required style={{ width: "100%", padding: "10px 12px", fontSize: 14 }} />
             </div>
 
+            {mode === "reset" ? null : (
             <div style={{ marginBottom: 24 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 500,
-                marginBottom: 6, color: "#8b89aa" }}>Password</label>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 500, color: "#8b89aa" }}>Password</label>
+                {mode === "login" && (
+                  <button type="button"
+                    onClick={() => { setMode("reset"); setError(""); setMessage("") }}
+                    style={{ background: "none", border: "none", cursor: "pointer",
+                      fontSize: 12, color: "#4a4865", padding: 0 }}>
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <div style={{ position: "relative" }}>
                 <input
                   type={showPassword ? "text" : "password"}
@@ -129,6 +189,7 @@ export default function AuthView({ onAuth }) {
                 </button>
               </div>
             </div>
+            )}
 
             {error && (
               <div style={{ background: "rgba(248,113,113,0.08)",
@@ -157,7 +218,7 @@ export default function AuthView({ onAuth }) {
                 borderRadius: 8, fontSize: 15,
                 cursor: loading ? "not-allowed" : "pointer", fontWeight: 600,
                 boxShadow: loading ? "none" : "0 0 24px rgba(29,78,216,0.3)" }}>
-              {loading ? "…" : mode === "login" ? "Sign in" : "Create account"}
+              {loading ? "…" : mode === "login" ? "Sign in" : mode === "reset" ? "Send reset link" : "Create account"}
             </button>
           </form>
 
@@ -192,7 +253,9 @@ export default function AuthView({ onAuth }) {
               onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); setMessage("") }}
               style={{ background: "none", border: "none", cursor: "pointer",
                 color: "#4a4865", fontSize: 13 }}>
-              {mode === "login"
+              {mode === "reset"
+                ? "Back to sign in"
+                : mode === "login"
                 ? "Don't have an account? Sign up"
                 : "Already have an account? Sign in"}
             </button>

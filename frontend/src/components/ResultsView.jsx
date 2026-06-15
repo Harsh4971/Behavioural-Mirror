@@ -218,6 +218,11 @@ export default function ResultsView({ results, onBack }) {
   const talkPct = Math.round(signals.talk_ratio.user_ratio * 100)
   const duration = Math.round(signals.session_duration_s / 60)
 
+  const totalDur = signals.session_duration_s || 1
+  const userTalkPct  = Math.round((signals.talk_ratio.user_speaking_time_s  / totalDur) * 100)
+  const otherTalkPct = Math.round((signals.talk_ratio.other_speaking_time_s / totalDur) * 100)
+  const silencePct   = Math.max(0, 100 - userTalkPct - otherTalkPct)
+
   const handleReanalyze = async (newSpeaker) => {
     if (!session_id) return
     setShowSpeakerSwitch(false); setReanalyzing(true); setReanalyzeError("")
@@ -233,7 +238,7 @@ export default function ResultsView({ results, onBack }) {
     }
   }
 
-  const tabs = ["overview", "dimensions", "coaching", "reflect", "signals", "summary"]
+  const tabs = ["overview", "dimensions", "coaching", "reflect", "signals"]
   const otherSpeakers = (liveResults.available_speakers || []).filter(s => s !== detected_speaker)
 
   return (
@@ -256,7 +261,7 @@ export default function ResultsView({ results, onBack }) {
             </span>
           )}
         </div>
-        {otherSpeakers.length > 0 && (
+        {otherSpeakers.length > 0 && !reanalyzing && (
           <div style={{ position: "relative" }}>
             <button onClick={() => setShowSpeakerSwitch(v => !v)}
               style={{ fontSize: 12, color: "#8b89aa", background: "#151922",
@@ -283,6 +288,19 @@ export default function ResultsView({ results, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Low voiceprint confidence nudge */}
+      {(confLabel === "low" || (voiceprint_confidence == null && !liveResults.speaker_confirmed)) && (
+        <div style={{ background: "rgba(245,158,11,0.07)",
+          border: "1px solid rgba(245,158,11,0.2)",
+          borderRadius: 8, padding: "10px 14px", marginBottom: 12,
+          fontSize: 12, color: "#f59e0b", lineHeight: 1.6 }}>
+          ⚠ Voice match is low — insights may be based on the wrong speaker.
+          {otherSpeakers.length > 0
+            ? " Try switching speakers using the button above."
+            : " Re-enroll your voice (Account → Retrain your voice) for better accuracy next time."}
+        </div>
+      )}
 
       {reanalyzeError && (
         <div style={{ fontSize: 12, color: "#f87171",
@@ -345,22 +363,38 @@ export default function ResultsView({ results, onBack }) {
             )
           })()}
 
-          {/* Conversation Summary */}
+          {/* Conversation Summary — what it was about */}
           {insights.conversation_summary && (
             <div style={{ background: "rgba(129,140,248,0.06)",
-              borderRadius: 12, padding: 18, marginBottom: 14,
+              borderRadius: 12, padding: 18, marginBottom: 12,
               borderLeft: "3px solid #818cf8" }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#818cf8",
                 marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Conversation Summary
+                The Conversation
               </div>
-              <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0, color: "#c7d2fe" }}>
+              <p style={{ fontSize: 14, lineHeight: 1.75, margin: 0, color: "#c7d2fe" }}>
                 {insights.conversation_summary}
               </p>
             </div>
           )}
 
-          {/* Notable pattern — promoted to headline position */}
+          {/* Your Perspective — what the user specifically said/contributed */}
+          {insights.user_perspective && (
+            <div style={{ background: "rgba(59,130,246,0.05)",
+              borderRadius: 12, padding: 18, marginBottom: 14,
+              borderLeft: "3px solid #3b82f6",
+              border: "1px solid rgba(59,130,246,0.15)" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#5b9cf6",
+                marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Your Perspective
+              </div>
+              <p style={{ fontSize: 14, lineHeight: 1.8, margin: 0, color: "#f0eeff" }}>
+                {insights.user_perspective}
+              </p>
+            </div>
+          )}
+
+          {/* Notable pattern */}
           {insights.notable_pattern && (
             <div style={{ background: "rgba(29,78,216,0.06)",
               border: "1px solid rgba(29,78,216,0.2)",
@@ -375,18 +409,6 @@ export default function ResultsView({ results, onBack }) {
               </p>
             </div>
           )}
-
-          {/* Communication Pattern */}
-          <div style={{ background: "#151922", borderRadius: 12,
-            padding: 18, marginBottom: 16, borderLeft: "3px solid #1d4ed8" }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#5b9cf6",
-              marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Communication Pattern
-            </div>
-            <p style={{ fontSize: 14, lineHeight: 1.7, margin: 0, color: "#f0eeff" }}>
-              {insights.summary_sentence}
-            </p>
-          </div>
 
           {/* Behavioral Observations — moved from Signals tab */}
           {insights.observations?.length > 0 && (
@@ -404,13 +426,12 @@ export default function ResultsView({ results, onBack }) {
           )}
 
           {/* Key metrics — gradient numbers */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr",
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
             gap: 8, marginBottom: 8 }}>
             {[
-              { label: "Duration", value: `${duration}`, unit: "m" },
-              { label: "You spoke", value: `${talkPct}`, unit: "%" },
-              { label: "Speech rate", value: `${signals.speech_rate.overall_wpm}`, unit: "wpm" },
-              { label: "Fillers", value: `${signals.filler_words.rate_per_100_words}`, unit: "/100w" },
+              { label: "Duration",    value: `${duration}`,                           unit: "m"    },
+              { label: "Speech rate", value: `${signals.speech_rate.overall_wpm}`,    unit: "wpm"  },
+              { label: "Fillers",     value: `${signals.filler_words.rate_per_100_words}`, unit: "/100w" },
             ].map(({ label, value, unit }) => (
               <div key={label} style={{ textAlign: "center", padding: "16px 8px",
                 border: "1px solid #1e2438", borderRadius: 10, background: "#151922" }}>
@@ -423,6 +444,30 @@ export default function ResultsView({ results, onBack }) {
                 <div style={{ fontSize: 11, color: "#8b89aa", marginTop: 4 }}>{unit}</div>
               </div>
             ))}
+          </div>
+
+          {/* Talk split bar — You / Others / Silence */}
+          <div style={{ border: "1px solid #1e2438", borderRadius: 10,
+            background: "#151922", padding: "14px 16px", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 10 }}>Talk split</div>
+            <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", gap: 1 }}>
+              <div style={{ width: `${userTalkPct}%`,  background: "#3b82f6", transition: "width 0.4s" }} />
+              <div style={{ width: `${otherTalkPct}%`, background: "#8b5cf6", transition: "width 0.4s" }} />
+              <div style={{ width: `${silencePct}%`,   background: "#1e2438", transition: "width 0.4s" }} />
+            </div>
+            <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+              {[
+                { label: "You",     pct: userTalkPct,  color: "#3b82f6" },
+                { label: "Others",  pct: otherTalkPct, color: "#8b5cf6" },
+                { label: "Silence", pct: silencePct,   color: "#4a4865" },
+              ].map(({ label, pct, color }) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+                  <span style={{ fontSize: 11, color: "#8b89aa" }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#f0eeff" }}>{pct}%</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Secondary metrics */}
@@ -635,37 +680,6 @@ export default function ResultsView({ results, onBack }) {
               </div>
             ))}
           </div>
-        </Reveal>
-      )}
-
-      {/* ── SUMMARY TAB ── */}
-      {activeTab === "summary" && (
-        <Reveal>
-          <p style={{ fontSize: 13, color: "#8b89aa", marginBottom: 16, lineHeight: 1.6 }}>
-            A compact behavioral summary of this session — used to build your cross-session profile over time.
-          </p>
-          {fingerprint ? (
-            <div style={{ background: "#151922", border: "1px solid #1e2438",
-              borderRadius: 12, padding: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#4a4865",
-                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>
-                Behavioral Fingerprint
-              </div>
-              <p style={{ margin: 0, fontSize: 14, color: "#d4d2e8", lineHeight: 1.85 }}>
-                {fingerprint}
-              </p>
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: 48, color: "#4a4865" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>📄</div>
-              <p style={{ fontSize: 14, color: "#8b89aa" }}>
-                Summary not available for this session.
-              </p>
-              <p style={{ fontSize: 12, color: "#4a4865", marginTop: 4 }}>
-                New sessions will include this automatically.
-              </p>
-            </div>
-          )}
         </Reveal>
       )}
 

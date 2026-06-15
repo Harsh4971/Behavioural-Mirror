@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>mirror — Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; font-family: 'Inter', system-ui, sans-serif; color: #fff; padding: 40px 20px; }
+
+  h1 { text-align: center; font-size: 13px; font-weight: 600; color: #555; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+  .subtitle { text-align: center; font-size: 13px; color: #444; margin-bottom: 60px; }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 1200px; margin: 0 auto 80px; }
+  .label { font-size: 11px; font-weight: 700; color: #444; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px; }
+
+  /* ─── OPTION A: Midnight Glass ───────────────────────────── */
+  .a { background: #0b0b0f; border-radius: 20px; padding: 28px; border: 1px solid #1c1c28; }
+  .a-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
+  .a-logo { font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .a-badge { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); color: #818cf8; font-size: 11px; padding: 4px 12px; border-radius: 20px; }
+  .a-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 18px; margin-bottom: 10px; backdrop-filter: blur(10px); }
+  .a-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .a-icon { width: 32px; height: 32px; border-radius: 9px; background: linear-gradient(135deg, #6366f1, #a855f7); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .a-title { font-size: 13px; font-weight: 600; color: #e2e8f0; }
+  .a-sub { font-size: 12px; color: #475569; line-height: 1.6; }
+  .a-bar-wrap { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 12px; }
+  .a-bar { height: 100%; width: 72%; background: linear-gradient(90deg, #6366f1, #a855f7); border-radius: 2px; }
+  .a-score { font-size: 22px; font-weight: 800; background: linear-gradient(135deg, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .a-nav { display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 16px; }
+  .a-tab { padding: 8px 16px; font-size: 13px; color: #475569; border-bottom: 2px solid transparent; cursor: pointer; }
+  .a-tab.on { color: #818cf8; border-color: #6366f1; font-weight: 600; }
+  .a-stat { display: flex; flex-direction: column; gap: 3px; }
+  .a-stat-val { font-size: 26px; font-weight: 800; color: #f1f5f9; line-height: 1; }
+  .a-stat-label { font-size: 11px; color: #475569; }
+  .a-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .a-tag { display: inline-block; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.15); color: #818cf8; font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px; }
+  .a-btn { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+  /* ─── OPTION B: Zinc Minimal ──────────────────────────────── */
+  .b { background: #111113; border-radius: 20px; padding: 28px; border: 1px solid #222226; }
+  .b-logo { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 24px; }
+  .b-logo span { color: #3b82f6; }
+  .b-label { font-size: 10px; font-weight: 600; color: #3b82f6; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+  .b-section-title { font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 14px; }
+  .b-card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 16px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .b-card-left { display: flex; flex-direction: column; gap: 3px; }
+  .b-card-name { font-size: 13px; font-weight: 600; color: #f4f4f5; }
+  .b-card-desc { font-size: 12px; color: #52525b; }
+  .b-pill { background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 6px; }
+  .b-row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .b-metric { flex: 1; background: #18181b; border: 1px solid #27272a; border-radius: 10px; padding: 14px; }
+  .b-m-val { font-size: 24px; font-weight: 800; color: #f4f4f5; line-height: 1; margin-bottom: 4px; }
+  .b-m-unit { font-size: 11px; color: #52525b; }
+  .b-feed { background: #18181b; border: 1px solid #27272a; border-radius: 12px; overflow: hidden; margin-bottom: 8px; }
+  .b-feed-item { padding: 14px 16px; border-bottom: 1px solid #222226; display: flex; gap: 12px; align-items: flex-start; }
+  .b-feed-icon { width: 26px; height: 26px; border-radius: 6px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .b-feed-text { font-size: 13px; color: #a1a1aa; line-height: 1.6; }
+  .b-dim { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #222226; }
+  .b-dim-name { font-size: 13px; font-weight: 500; color: #f4f4f5; width: 100px; flex-shrink: 0; }
+  .b-dim-track { flex: 1; height: 4px; background: #27272a; border-radius: 2px; }
+  .b-dim-fill { height: 100%; background: #3b82f6; border-radius: 2px; }
+  .b-dim-score { font-size: 13px; font-weight: 700; color: #60a5fa; width: 30px; text-align: right; }
+
+  /* ─── OPTION C: Warm Amber ──────────────────────────────────── */
+  .c { background: #0f0e0c; border-radius: 20px; padding: 28px; border: 1px solid #221e17; }
+  .c-logo { font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #f97316); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 24px; }
+  .c-label { font-size: 10px; font-weight: 700; color: #d97706; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+  .c-heading { font-size: 15px; font-weight: 700; color: #fef3c7; margin-bottom: 14px; }
+  .c-card { background: #18160f; border: 1px solid #2d2718; border-radius: 12px; padding: 16px; margin-bottom: 8px; border-left: 3px solid #f59e0b; }
+  .c-card-tag { font-size: 10px; font-weight: 700; color: #d97706; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .c-card-text { font-size: 13px; color: #d6d0c0; line-height: 1.7; }
+  .c-card-tip { font-size: 12px; color: #78716c; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2d2718; line-height: 1.6; }
+  .c-dim { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; background: #18160f; border: 1px solid #2d2718; border-radius: 8px; margin-bottom: 6px; }
+  .c-dim-name { font-size: 13px; font-weight: 600; color: #fef3c7; }
+  .c-dim-label { font-size: 11px; color: #78716c; }
+  .c-dim-right { display: flex; align-items: center; gap: 10px; }
+  .c-dim-bar { width: 80px; height: 3px; background: #2d2718; border-radius: 2px; }
+  .c-dim-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #f97316); border-radius: 2px; }
+  .c-dim-score { font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #f59e0b, #f97316); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .c-tag { display: inline-block; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); color: #f59e0b; font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px; margin-right: 6px; }
+  .c-btn { background: linear-gradient(135deg, #f59e0b, #f97316); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+  .c-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .c-stat { background: #18160f; border: 1px solid #2d2718; border-radius: 10px; padding: 14px; }
+  .c-stat-val { font-size: 22px; font-weight: 800; color: #fef3c7; line-height: 1; }
+  .c-stat-lbl { font-size: 11px; color: #78716c; margin-top: 4px; }
+
+  /* ─── OPTION D: Slate + Emerald (pro/SaaS) ───────────────── */
+  .d { background: #0d1117; border-radius: 20px; padding: 28px; border: 1px solid #21262d; }
+  .d-logo { font-size: 20px; font-weight: 800; color: #f0f6ff; letter-spacing: -0.5px; margin-bottom: 24px; }
+  .d-logo span { color: #10b981; }
+  .d-label { font-size: 10px; font-weight: 600; color: #10b981; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
+  .d-heading { font-size: 15px; font-weight: 700; color: #f0f6ff; margin-bottom: 14px; }
+  .d-hero { background: linear-gradient(135deg, rgba(16,185,129,0.07) 0%, rgba(6,182,212,0.04) 100%); border: 1px solid rgba(16,185,129,0.12); border-radius: 14px; padding: 20px; margin-bottom: 12px; }
+  .d-hero-text { font-size: 14px; color: #c9d1d9; line-height: 1.85; border-left: 2px solid rgba(16,185,129,0.4); padding-left: 14px; }
+  .d-tag { display: inline-block; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); color: #34d399; font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px; margin-right: 6px; margin-top: 14px; }
+  .d-card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 16px; margin-bottom: 8px; display: flex; gap: 14px; align-items: flex-start; }
+  .d-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .d-card-title { font-size: 13px; font-weight: 600; color: #f0f6ff; margin-bottom: 4px; }
+  .d-card-desc { font-size: 12px; color: #8b949e; line-height: 1.6; }
+  .d-feed-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+  .d-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .d-metric { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 14px; text-align: center; }
+  .d-metric-val { font-size: 20px; font-weight: 800; background: linear-gradient(135deg, #10b981, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; line-height: 1; margin-bottom: 4px; }
+  .d-metric-lbl { font-size: 10px; color: #8b949e; }
+  .d-dim { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .d-dim-name { font-size: 13px; font-weight: 500; color: #f0f6ff; width: 90px; flex-shrink: 0; }
+  .d-dim-kw { font-size: 11px; color: #8b949e; flex: 0 0 60px; }
+  .d-dim-track { flex: 1; height: 4px; background: #21262d; border-radius: 2px; }
+  .d-dim-fill { height: 100%; background: linear-gradient(90deg, #10b981, #06b6d4); border-radius: 2px; }
+  .d-score { font-size: 13px; font-weight: 700; color: #34d399; width: 28px; text-align: right; }
+  .d-btn { background: linear-gradient(135deg, #10b981, #06b6d4); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>Mirror — Design Directions</h1>
+<p class="subtitle">Pick the vibe that feels right. Can mix elements from different options.</p>
+
+<div class="row">
+
+  <!-- OPTION A -->
+  <div>
+    <div class="label">A — Midnight Glass (Indigo / Purple)</div>
+    <div class="a">
+      <div class="a-header">
+        <div class="a-logo">mirror</div>
+        <button class="a-btn">+ Upload</button>
+      </div>
+      <div class="a-nav">
+        <div class="a-tab on">Profile</div>
+        <div class="a-tab">Upload</div>
+        <div class="a-tab">History</div>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:#818cf8;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:6px;">Cross-Session</div>
+      <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:14px;">Mirror Feed</div>
+      <div class="a-card">
+        <div class="a-card-header">
+          <div class="a-icon">↑</div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px;">Improving</div>
+            <div class="a-title">Your composure scores are climbing — you're recovering faster when pushed back on.</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:#475569;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);">Try naming your uncertainty out loud instead of deflecting — "I'm not sure, let me think" builds more trust.</div>
+      </div>
+      <div class="a-card">
+        <div class="a-card-header">
+          <div class="a-icon" style="background:linear-gradient(135deg,#f59e0b,#fb923c);">●</div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px;">Consistent Pattern</div>
+            <div class="a-title">You talk more in collaborative settings but pull back in evaluative ones.</div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:10px;font-weight:700;color:#818cf8;letter-spacing:1.2px;text-transform:uppercase;margin:18px 0 6px;">5 Dimensions</div>
+      <div style="font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:12px;">Your Shape</div>
+      <div class="a-stats">
+        <div class="a-stat"><div class="a-score">72</div><div class="a-stat-label">Confidence</div></div>
+        <div class="a-stat"><div class="a-score">58</div><div class="a-stat-label">Assertiveness</div></div>
+        <div class="a-stat"><div class="a-score">81</div><div class="a-stat-label">Listening</div></div>
+      </div>
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:14px;">
+        <div style="font-size:13px;color:#94a3b8;line-height:1.8;">You lead conversations confidently in collaborative settings, but pull back noticeably when being assessed.</div>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <div class="a-tag">Attentive</div>
+          <div class="a-tag">Measured</div>
+          <div class="a-tag">Composed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <div>
+    <div class="label">B — Zinc Minimal (Neutral + Blue)</div>
+    <div class="b">
+      <div class="b-logo">mirror<span>.</span></div>
+      <div class="b-label">Cross-Session</div>
+      <div class="b-section-title">Mirror Feed</div>
+      <div class="b-feed">
+        <div class="b-feed-item">
+          <div class="b-feed-icon" style="color:#34d399;">↑</div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px;">Improving</div>
+            <div class="b-feed-text">Your composure scores are climbing — you're recovering faster when pushed back on.</div>
+          </div>
+        </div>
+        <div class="b-feed-item" style="border-bottom:none;">
+          <div class="b-feed-icon" style="color:#f59e0b;">●</div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:0.8px;text-transform:uppercase;margin-bottom:4px;">Consistent Pattern</div>
+            <div class="b-feed-text">You talk more in collaborative settings but pull back in evaluative ones.</div>
+          </div>
+        </div>
+      </div>
+      <div class="b-label" style="margin-top:18px;">Your Portrait</div>
+      <div class="b-card" style="margin-bottom:14px;border-left:2px solid #3b82f6;">
+        <div style="font-size:13px;color:#a1a1aa;line-height:1.8;">You lead conversations confidently in collaborative settings, but pull back noticeably when being assessed.</div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+          <div class="b-pill">Attentive</div>
+          <div class="b-pill">Measured</div>
+          <div class="b-pill">Composed</div>
+        </div>
+      </div>
+      <div class="b-label">5 Dimensions</div>
+      <div class="b-section-title">Your Shape</div>
+      <div class="b-row">
+        <div class="b-metric"><div class="b-m-val">72</div><div class="b-m-unit">Confidence</div></div>
+        <div class="b-metric"><div class="b-m-val">58</div><div class="b-m-unit">Assertiveness</div></div>
+        <div class="b-metric"><div class="b-m-val">81</div><div class="b-m-unit">Listening</div></div>
+      </div>
+      <div class="b-dim" style="padding-top:6px;"><span class="b-dim-name">Confidence</span><div class="b-dim-track"><div class="b-dim-fill" style="width:72%;"></div></div><span class="b-dim-score">72</span></div>
+      <div class="b-dim"><span class="b-dim-name">Assertiveness</span><div class="b-dim-track"><div class="b-dim-fill" style="width:58%;"></div></div><span class="b-dim-score">58</span></div>
+      <div class="b-dim"><span class="b-dim-name">Listening</span><div class="b-dim-track"><div class="b-dim-fill" style="width:81%;"></div></div><span class="b-dim-score">81</span></div>
+      <div class="b-dim"><span class="b-dim-name">Composure</span><div class="b-dim-track"><div class="b-dim-fill" style="width:65%;"></div></div><span class="b-dim-score">65</span></div>
+      <div class="b-dim" style="border:none;padding-bottom:0;"><span class="b-dim-name">Clarity</span><div class="b-dim-track"><div class="b-dim-fill" style="width:74%;"></div></div><span class="b-dim-score">74</span></div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <div>
+    <div class="label">C — Warm Amber (Dark Brown + Gold)</div>
+    <div class="c">
+      <div class="c-logo">mirror</div>
+      <div class="c-label">Cross-Session</div>
+      <div class="c-heading">Mirror Feed</div>
+      <div class="c-card">
+        <div class="c-card-tag">↑ Improving</div>
+        <div class="c-card-text">Your composure scores are climbing — you're recovering faster when pushed back on.</div>
+        <div class="c-card-tip">Try naming your uncertainty out loud instead of deflecting — builds more trust.</div>
+      </div>
+      <div class="c-card">
+        <div class="c-card-tag">● Consistent Pattern</div>
+        <div class="c-card-text">You talk more in collaborative settings but pull back in evaluative ones.</div>
+      </div>
+      <div style="margin-top:18px;">
+        <div class="c-label">Your Portrait</div>
+        <div style="background:#18160f;border:1px solid #2d2718;border-radius:12px;padding:16px;margin-bottom:16px;">
+          <div style="font-size:13px;color:#d6d0c0;line-height:1.85;border-left:2px solid rgba(245,158,11,0.4);padding-left:14px;">You lead conversations confidently in collaborative settings, but pull back noticeably when being assessed.</div>
+          <div style="margin-top:12px;">
+            <span class="c-tag">Attentive</span>
+            <span class="c-tag">Measured</span>
+          </div>
+        </div>
+      </div>
+      <div class="c-label">5 Dimensions</div>
+      <div class="c-heading">Your Shape</div>
+      <div class="c-dim"><div><div class="c-dim-name">Confidence</div><div class="c-dim-label">Measured</div></div><div class="c-dim-right"><div class="c-dim-bar"><div class="c-dim-fill" style="width:72%;"></div></div><div class="c-dim-score">72</div></div></div>
+      <div class="c-dim"><div><div class="c-dim-name">Assertiveness</div><div class="c-dim-label">Reserved</div></div><div class="c-dim-right"><div class="c-dim-bar"><div class="c-dim-fill" style="width:58%;"></div></div><div class="c-dim-score">58</div></div></div>
+      <div class="c-dim"><div><div class="c-dim-name">Listening</div><div class="c-dim-label">Present</div></div><div class="c-dim-right"><div class="c-dim-bar"><div class="c-dim-fill" style="width:81%;"></div></div><div class="c-dim-score">81</div></div></div>
+    </div>
+  </div>
+
+  <!-- OPTION D -->
+  <div>
+    <div class="label">D — Slate + Emerald (GitHub-dark feel)</div>
+    <div class="d">
+      <div class="d-logo">mirror<span style="color:#10b981;">.</span></div>
+      <div class="d-metrics">
+        <div class="d-metric"><div class="d-metric-val">72%</div><div class="d-metric-lbl">Talk ratio</div></div>
+        <div class="d-metric"><div class="d-metric-val">142</div><div class="d-metric-lbl">WPM</div></div>
+        <div class="d-metric"><div class="d-metric-val">3.1</div><div class="d-metric-lbl">Fillers/100w</div></div>
+        <div class="d-metric"><div class="d-metric-val">8</div><div class="d-metric-lbl">Sessions</div></div>
+      </div>
+      <div class="d-label">Cross-Session</div>
+      <div class="d-heading">Mirror Feed</div>
+      <div class="d-card">
+        <div style="width:8px;height:8px;border-radius:50%;background:#34d399;margin-top:5px;flex-shrink:0;"></div>
+        <div>
+          <div class="d-feed-badge" style="color:#34d399;">↑ Improving</div>
+          <div class="d-card-title">Composure climbing across sessions</div>
+          <div class="d-card-desc">You're recovering faster when pushed back on — a consistent upward trend over 5 sessions.</div>
+        </div>
+      </div>
+      <div class="d-card">
+        <div style="width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-top:5px;flex-shrink:0;"></div>
+        <div>
+          <div class="d-feed-badge" style="color:#f59e0b;">● Pattern</div>
+          <div class="d-card-title">Talk ratio shifts by context</div>
+          <div class="d-card-desc">Collaborative: 65% · Evaluative: 38% — you calibrate naturally but go too quiet under pressure.</div>
+        </div>
+      </div>
+      <div class="d-label" style="margin-top:18px;">Your Portrait</div>
+      <div class="d-hero">
+        <div class="d-hero-text">You lead conversations confidently in collaborative settings, but pull back noticeably when being assessed. Your listening quality is consistently high.</div>
+        <div class="d-tag">Attentive</div>
+        <div class="d-tag">Measured</div>
+        <div class="d-tag">Composed</div>
+      </div>
+      <div class="d-label">5 Dimensions</div>
+      <div class="d-heading">Your Shape</div>
+      <div class="d-dim"><span class="d-dim-name">Confidence</span><span class="d-dim-kw">Measured</span><div class="d-dim-track"><div class="d-dim-fill" style="width:72%;"></div></div><span class="d-score">72</span></div>
+      <div class="d-dim"><span class="d-dim-name">Assertiveness</span><span class="d-dim-kw">Reserved</span><div class="d-dim-track"><div class="d-dim-fill" style="width:58%;"></div></div><span class="d-score">58</span></div>
+      <div class="d-dim"><span class="d-dim-name">Listening</span><span class="d-dim-kw">Present</span><div class="d-dim-track"><div class="d-dim-fill" style="width:81%;"></div></div><span class="d-score">81</span></div>
+      <div class="d-dim"><span class="d-dim-name">Composure</span><span class="d-dim-kw">Steady</span><div class="d-dim-track"><div class="d-dim-fill" style="width:65%;"></div></div><span class="d-score">65</span></div>
+      <div class="d-dim" style="border:none;"><span class="d-dim-name">Clarity</span><span class="d-dim-kw">Clear</span><div class="d-dim-track"><div class="d-dim-fill" style="width:74%;"></div></div><span class="d-score">74</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div style="max-width:1200px;margin:0 auto;padding:0 0 60px;">
+  <p style="font-size:12px;color:#333;text-align:center;">Tell me: A, B, C, or D — or "I like A's cards but D's dimension layout" etc.</p>
+</div>
+
+</body>
+</html>

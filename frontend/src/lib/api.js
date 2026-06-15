@@ -1,7 +1,10 @@
 import axios from "axios"
 import { supabase } from "./supabase"
 
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000" })
+const BASE_URL = import.meta.env.VITE_API_URL
+if (!BASE_URL) throw new Error("VITE_API_URL is not set — check your .env file")
+
+const api = axios.create({ baseURL: BASE_URL })
 
 api.interceptors.request.use(async (config) => {
   const { data: { session } } = await supabase.auth.getSession()

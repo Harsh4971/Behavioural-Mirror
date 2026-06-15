@@ -85,6 +85,7 @@ export default function UploadView({ onResults, onActivate }) {
   const [step, setStep] = useState("idle")
   const [error, setError] = useState("")
   const [progressStep, setProgressStep] = useState(null)
+  const [serverWarm, setServerWarm] = useState(true)
 
   const esRef = useRef(null)
   const pollRef = useRef(null)
@@ -198,6 +199,22 @@ export default function UploadView({ onResults, onActivate }) {
 
   useEffect(() => {
     return () => { esRef.current?.close(); clearInterval(pollRef.current) }
+  }, [])
+
+  // Cold-start warmup check — HF Spaces sleeps after inactivity
+  useEffect(() => {
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (!cancelled) setServerWarm(false)
+    }, 3500)
+    api.get("/health").then(() => {
+      clearTimeout(timer)
+      if (!cancelled) setServerWarm(true)
+    }).catch(() => {
+      clearTimeout(timer)
+      if (!cancelled) setServerWarm(false)
+    })
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [])
 
   const handlePrepare = async () => {
@@ -326,6 +343,16 @@ export default function UploadView({ onResults, onActivate }) {
         )}
       </div>
 
+      {!serverWarm && (
+        <div style={{ background: "rgba(245,158,11,0.07)",
+          border: "1px solid rgba(245,158,11,0.2)",
+          borderRadius: 8, padding: "10px 14px", marginBottom: 14,
+          fontSize: 12, color: "#f59e0b", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14 }}>⏳</span>
+          Server is waking up — first analysis may take a little longer than usual.
+        </div>
+      )}
+
       {error && (
         <div style={{ background: "rgba(248,113,113,0.08)",
           border: "1px solid rgba(248,113,113,0.25)",
@@ -347,9 +374,18 @@ export default function UploadView({ onResults, onActivate }) {
         Analyze Conversation
       </button>
 
-      <p style={{ fontSize: 11, color: "#4a4865", textAlign: "center", marginTop: 12 }}>
-        🔒 Audio is deleted immediately after analysis. Only behavioral signals are stored.
-      </p>
+      <div style={{ marginTop: 14, padding: "10px 14px",
+        background: "rgba(29,78,216,0.06)", border: "1px solid rgba(29,78,216,0.15)",
+        borderRadius: 8, textAlign: "center" }}>
+        <p style={{ fontSize: 12, color: "#6b6a8a", margin: 0 }}>
+          🔒 Audio is deleted immediately after analysis. Only behavioural insights are stored.{" "}
+          <a href="https://harsh200415-mirror-backend.hf.space/privacy"
+            target="_blank" rel="noreferrer"
+            style={{ color: "#5b9cf6", textDecoration: "none" }}>
+            Privacy Policy
+          </a>
+        </p>
+      </div>
     </Reveal>
   )
 }

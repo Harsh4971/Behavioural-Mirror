@@ -72,11 +72,15 @@ class SignalExtractor:
 
     def extract_all(self) -> dict:
         user_segs = [s for s in self.segments if s["speaker"] == self.user_speaker]
+        # Primary "other" speaker used for dyadic metrics (interruptions, pauses, engagement)
         other_segs = [s for s in self.segments if s["speaker"] == self.other_speaker] if self.other_speaker else []
+        # ALL non-user speakers — used for talk ratio and silence so multi-speaker meetings
+        # (and Meet's duplicate-track issue) don't inflate the user's share.
+        all_other_segs = [s for s in self.segments if s["speaker"] not in {self.user_speaker, "UNKNOWN"}]
 
         signals = {
             "session_duration_s": self._get_session_duration(),
-            "talk_ratio": self._compute_talk_ratio(user_segs, other_segs),
+            "talk_ratio": self._compute_talk_ratio(user_segs, all_other_segs),
             "speech_rate": self._compute_speech_rate(user_segs),
             "pauses": self._compute_pauses(user_segs, other_segs),
             "interruptions": self._compute_interruptions(user_segs, other_segs),
@@ -89,7 +93,7 @@ class SignalExtractor:
             "questions": self._compute_questions(user_segs, other_segs),
             "monologue": self._compute_monologue(user_segs),
             "vocabulary_richness": self._compute_vocabulary_richness(user_segs),
-            "silence_ratio": self._compute_silence_ratio(user_segs, other_segs),
+            "silence_ratio": self._compute_silence_ratio(user_segs, all_other_segs),
             "crosstalk": self._compute_crosstalk(user_segs, other_segs),
             "timeline": self._build_timeline(user_segs)
         }

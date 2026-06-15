@@ -261,7 +261,8 @@ RULES:
 
 Output this exact JSON:
 {{
-  "conversation_summary": "3-4 sentences. What was this conversation actually about? What happened? What was the tone and dynamic? Reference specific things said.",
+  "conversation_summary": "2-3 sentences. What was this conversation about — the topic, the dynamic, the overall tone. Describe the situation, not the person.",
+  "user_perspective": "2-3 sentences written directly to the user about THEIR specific role in this conversation. What position did they take? What did they argue or bring up? What seemed to matter to them? Reference specific things they said or moments where their voice was distinct. Make them feel seen — like someone was actually paying attention to what they contributed, not just measuring them.",
   "summary_sentence": "One direct sentence capturing the dominant behavioral pattern in this conversation.",
   "observations": [
     {{
@@ -389,6 +390,7 @@ Rules:
         except Exception:
             return {
                 "conversation_summary": "Session analyzed.",
+                "user_perspective": None,
                 "summary_sentence": "Session analyzed.",
                 "observations": [],
                 "coaching_suggestions": [],

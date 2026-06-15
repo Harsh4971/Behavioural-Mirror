@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mirror Icon Generator</title>
+  <style>
+    body {
+      background: #0f1117;
+      color: #f0eeff;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 24px;
+      gap: 32px;
+    }
+    h2 { margin: 0; font-size: 20px; letter-spacing: -0.3px; }
+    p  { margin: 0; color: #6b6a88; font-size: 13px; }
+    .previews {
+      display: flex;
+      align-items: flex-end;
+      gap: 24px;
+    }
+    .preview {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #6b6a88;
+    }
+    canvas {
+      border-radius: 8px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+    }
+    button {
+      background: linear-gradient(135deg, #1d4ed8, #0891b2);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 32px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+
+<h2>Mirror: Voice Insights — Icon Generator</h2>
+<p>Click the button to download all 3 icon sizes. Save them into <code>frontend/public/icons/</code></p>
+
+<div class="previews" id="previews"></div>
+
+<button onclick="downloadAll()">Download all icons</button>
+
+<script>
+  const SIZES = [16, 48, 128]
+
+  function roundedRect(ctx, x, y, w, h, r) {
+    ctx.beginPath()
+    ctx.moveTo(x + r, y)
+    ctx.lineTo(x + w - r, y)
+    ctx.arcTo(x + w, y, x + w, y + r, r)
+    ctx.lineTo(x + w, y + h - r)
+    ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+    ctx.lineTo(x + r, y + h)
+    ctx.arcTo(x, y + h, x, y + h - r, r)
+    ctx.lineTo(x, y + r)
+    ctx.arcTo(x, y, x + r, y, r)
+    ctx.closePath()
+  }
+
+  function drawIcon(size) {
+    const canvas = document.createElement('canvas')
+    canvas.width  = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+
+    // Rounded background
+    const r = size * 0.18
+    ctx.fillStyle = '#0f1117'
+    roundedRect(ctx, 0, 0, size, size, r)
+    ctx.fill()
+
+    const grad = ctx.createLinearGradient(0, 0, size, 0)
+    grad.addColorStop(0, '#1d4ed8')
+    grad.addColorStop(1, '#0891b2')
+
+    function bar(x, y, w, h, br, alpha) {
+      ctx.globalAlpha = alpha
+      ctx.fillStyle = grad
+      roundedRect(ctx, x, y, w, h, br)
+      ctx.fill()
+    }
+
+    if (size === 16) {
+      // Simplified 3-bar design — bold and crisp at tiny size
+      const mid = size / 2  // 8
+      // bar positions: left, center, right
+      // top bars
+      bar(2,   5, 2, 3, 1, 0.55)   // left short
+      bar(7,   2, 2, 6, 1, 1.00)   // center tall
+      bar(12,  5, 2, 3, 1, 0.55)   // right short
+      // mirror line
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = '#2a3050'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(size, mid); ctx.stroke()
+      // reflection bars
+      bar(2,   9, 2, 3, 1, 0.22)
+      bar(7,   9, 2, 5, 1, 0.38)
+      bar(12,  9, 2, 3, 1, 0.22)
+
+    } else if (size === 48) {
+      // 5-bar design on a 48×48 grid — balanced
+      const mid = 24
+      bar(4,  18, 6, 6,  3, 0.40)
+      bar(12, 12, 6, 12, 3, 0.65)
+      bar(21,  6, 6, 18, 3, 1.00)
+      bar(30, 12, 6, 12, 3, 0.65)
+      bar(38, 18, 6, 6,  3, 0.40)
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = '#2a3050'
+      ctx.lineWidth = 1.5
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(size, mid); ctx.stroke()
+      bar(4,  25, 6, 6,  3, 0.18)
+      bar(12, 25, 6, 11, 3, 0.30)
+      bar(21, 25, 6, 17, 3, 0.38)
+      bar(30, 25, 6, 11, 3, 0.30)
+      bar(38, 25, 6, 6,  3, 0.18)
+
+    } else {
+      // 128px — full detailed design on 128×128 grid
+      const mid = 64
+      bar(8,  48, 16, 16, 8, 0.40)
+      bar(30, 32, 16, 32, 8, 0.65)
+      bar(56, 12, 16, 52, 8, 1.00)
+      bar(82, 32, 16, 32, 8, 0.65)
+      bar(104,48, 16, 16, 8, 0.40)
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = '#2a3050'
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(size, mid); ctx.stroke()
+      bar(8,  66, 16, 16, 8, 0.18)
+      bar(30, 66, 16, 30, 8, 0.30)
+      bar(56, 66, 16, 50, 8, 0.38)
+      bar(82, 66, 16, 30, 8, 0.30)
+      bar(104,66, 16, 16, 8, 0.18)
+    }
+
+    ctx.globalAlpha = 1
+    return canvas
+  }
+
+  // Render previews
+  const container = document.getElementById('previews')
+  SIZES.forEach(size => {
+    const canvas = drawIcon(size)
+    const displaySize = Math.max(size, 48)
+    canvas.style.width  = displaySize + 'px'
+    canvas.style.height = displaySize + 'px'
+    canvas.style.imageRendering = size === 16 ? 'pixelated' : 'auto'
+
+    const wrap = document.createElement('div')
+    wrap.className = 'preview'
+    wrap.appendChild(canvas)
+    wrap.appendChild(Object.assign(document.createElement('span'), {
+      textContent: `${size}×${size}`
+    }))
+    container.appendChild(wrap)
+  })
+
+  function downloadAll() {
+    SIZES.forEach((size, i) => {
+      setTimeout(() => {
+        const canvas = drawIcon(size)
+        const a = document.createElement('a')
+        a.download = `icon${size}.png`
+        a.href = canvas.toDataURL('image/png')
+        a.click()
+      }, i * 200)
+    })
+  }
+</script>
+</body>
+</html>

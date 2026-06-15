@@ -473,7 +473,8 @@ export default function ProfileView({ active, onUpload }) {
   }
 
   const { by_context, trends: trendLines, session_count, personality,
-          blind_spots, completeness, completeness_label, mirror_feed } = profile
+          blind_spots, completeness, completeness_label, mirror_feed,
+          recurring_coaching } = profile
 
   const keywords = deriveKeywords(personality?.dimensions)
 
@@ -554,22 +555,9 @@ export default function ProfileView({ active, onUpload }) {
       </div>
       </Reveal>
 
-      {/* Mirror Feed */}
-      <Reveal delay={80}>
-      <div>
-        <div style={{ marginBottom: 12 }}>
-          <SectionLabel>Cross-Session</SectionLabel>
-          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-            Mirror Feed
-          </h2>
-        </div>
-        <MirrorFeed insights={mirror_feed} />
-      </div>
-      </Reveal>
-
-      {/* Your Portrait */}
+      {/* Your Portrait — comes first, it's the centrepiece */}
       {personality && (
-        <Reveal>
+        <Reveal delay={80}>
         <div>
           <SectionLabel>Your Portrait</SectionLabel>
           <div style={{
@@ -597,6 +585,59 @@ export default function ProfileView({ active, onUpload }) {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+        </Reveal>
+      )}
+
+      {/* Mirror Feed */}
+      <Reveal delay={80}>
+      <div>
+        <div style={{ marginBottom: 12 }}>
+          <SectionLabel>Cross-Session</SectionLabel>
+          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+            Mirror Feed
+          </h2>
+        </div>
+        <MirrorFeed insights={mirror_feed} />
+      </div>
+      </Reveal>
+
+      {/* Recurring Coaching */}
+      {recurring_coaching?.length > 0 && (
+        <Reveal delay={100}>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <SectionLabel>Keeps Coming Up</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+              Recurring Themes
+            </h2>
+            <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
+              Areas flagged in multiple sessions — these are your persistent development opportunities
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {recurring_coaching.map((item, i) => {
+              const accent = ["#f87171", "#fb923c", "#818cf8"][i] || "#8b89aa"
+              return (
+                <div key={item.area} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "12px 16px", borderRadius: 10,
+                  background: "#151922", border: `1px solid #1e2438`,
+                  borderLeft: `3px solid ${accent}`,
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#f0eeff",
+                    textTransform: "capitalize" }}>
+                    {item.area}
+                  </span>
+                  <span style={{ fontSize: 11, color: accent, fontWeight: 700,
+                    background: `${accent}15`, border: `1px solid ${accent}30`,
+                    borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                    flagged {item.count}× across sessions
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </div>
         </Reveal>

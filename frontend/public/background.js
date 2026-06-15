@@ -4,8 +4,6 @@
 const API_URL = 'https://harsh200415-mirror-backend.hf.space';
 
 // Reload any open Meet tabs when the extension is installed or reloaded.
-// During development this saves having to manually refresh Meet every time.
-// In production this only fires on extension updates (rare, seamless).
 chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
   chrome.tabs.query({ url: 'https://meet.google.com/*' }, (tabs) => {
@@ -13,19 +11,13 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// Manually handle action click — onClicked IS a user-gesture event handler, which is the ONLY
-// context where tabCapture.getMediaStreamId and sidePanel.open are permitted.
-// IMPORTANT: sidePanel.open() must be called synchronously (before any await) to remain
-// within Chrome's user-gesture activation window. getMediaStreamId callbacks fire as
-// macrotasks, which expire the gesture token before the await resolves.
+// Manually handle action click — onClicked IS a user-gesture event handler.
+// IMPORTANT: sidePanel.open() must be called synchronously (before any await).
 chrome.action.onClicked.addListener(async (tab) => {
-  // Open the panel immediately — must happen before any async operation.
   chrome.sidePanel.open({ tabId: tab.id }).catch(e =>
     console.error('[mirror] sidePanel.open failed:', e.message)
   );
 
-  // Pre-fetch tabCapture stream ID (Meet only, and only when not already recording).
-  // Cached in session storage so the side panel's "Start Recording" button can use it.
   if (tab.url?.startsWith('https://meet.google.com/') && !recordingActive) {
     try {
       const streamId = await new Promise((resolve, reject) => {
@@ -51,13 +43,8 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// Keep this SW instance alive while the side panel is open.
-// The invocation from onClicked is bound to this specific SW instance; if the SW terminates
-// and a new instance starts, the invocation is lost and tabCapture will fail.
-// An open port from the side panel prevents termination.
-chrome.runtime.onConnect.addListener((_port) => {
-  // Holding the reference keeps the SW alive for the duration of the connection.
-});
+// Keep SW alive while side panel is open (MV3 lifecycle).
+chrome.runtime.onConnect.addListener((_port) => {});
 
 let recordingTabId = null;
 let recordingActive = false;
@@ -65,6 +52,7 @@ let recordingActive = false;
 // WebRTC mode state
 let webrtcMode = false;
 let speakerTimeline = []; // [{speaker, start, end}] accumulated from content script VAD events
+let webrtcAvailableTabId = null;
 
 const CHUNK_DURATION_S = 15 * 60; // 900 seconds per chunk
 
@@ -74,28 +62,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.action) {
 
     case 'start_recording': {
-      // Legacy path from content script FAB — uses pre-fetched stream ID from onClicked
+      // FAB path from content script — content script already sent start_tracking to injector.
+      // Pass fromFAB=true so handleStart does NOT send start_webrtc_tracking again (would reset injector clock).
       const tabId = sender.tab?.id;
       if (!tabId) { sendResponse({ error: 'No tab ID' }); break; }
-      handleStart(tabId, msg.mode || 'tabcapture', null)
+      handleStart(tabId, msg.mode || 'tabcapture', null, /* fromFAB= */ true)
         .then(r => sendResponse(r))
         .catch(e => sendResponse({ error: e.message }));
       return true;
     }
 
     case 'start_recording_with_stream': {
-      // Primary path from side panel — streamId may be passed directly or looked up from
-      // the session cache (pre-fetched in onClicked).
+      // Side-panel path — background must notify content script/injector to start tracking.
       if (!msg.tabId) { sendResponse({ error: 'Missing tabId' }); break; }
-      handleStart(msg.tabId, msg.mode || 'tabcapture', msg.streamId || null)
+      handleStart(msg.tabId, msg.mode || 'tabcapture', msg.streamId || null, /* fromFAB= */ false)
         .then(r => sendResponse(r))
         .catch(e => sendResponse({ error: e.message }));
       return true;
     }
 
+    case 'set_webrtc_available': {
+      webrtcAvailableTabId = sender.tab?.id ?? null;
+      console.log('[mirror] WebRTC tracks available on tab', webrtcAvailableTabId);
+      sendResponse({ ok: true });
+      break;
+    }
+
     case 'get_webrtc_available': {
-      // Side panel querying whether WebRTC tracks were captured for a given tab
-      sendResponse({ available: false }); // TODO: wire up when WebRTC injector fires
+      const available = !!(msg.tabId && webrtcAvailableTabId === msg.tabId);
+      sendResponse({ available });
       break;
     }
 
@@ -112,7 +107,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     case 'speaker_event':
       // Accumulate VAD events from content script (WebRTC mode only)
-      if (msg.event) speakerTimeline.push(msg.event);
+      if (msg.event) {
+        speakerTimeline.push(msg.event);
+      }
       sendResponse({ ok: true });
       break;
 
@@ -145,7 +142,9 @@ async function getToken() {
   return { mirror_token, mirror_user_id };
 }
 
-async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null) {
+// fromFAB=true  → content script already sent start_tracking to injector; don't send again.
+// fromFAB=false → side panel path; background must notify injector to start tracking.
+async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null, fromFAB = false) {
   if (recordingActive) return { error: 'Already recording' };
 
   const { mirror_token } = await getToken();
@@ -154,8 +153,6 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null) 
   // Close any existing offscreen doc FIRST to release the previous tab capture
   await chrome.offscreen.closeDocument().catch(() => {});
 
-  // Prefer stream ID passed directly (from side panel's getMediaStreamId call).
-  // Fall back to the one pre-fetched in onClicked.
   let streamId = providedStreamId;
   if (!streamId) {
     const { pendingStreamId, pendingStreamTabId } = await chrome.storage.session.get([
@@ -168,7 +165,21 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null) 
   }
 
   if (!streamId) {
-    return { error: 'Use the "Start Recording" button in the Mirror panel alongside Meet.' };
+    // No cached stream ID — try to get one on demand.
+    // With 'tabCapture' permission this works from the SW without a user gesture.
+    console.log('[mirror] No cached stream ID — attempting on-demand getMediaStreamId for tab', tabId);
+    try {
+      streamId = await new Promise((resolve, reject) => {
+        chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(id);
+        });
+      });
+      console.log('[mirror] On-demand stream ID acquired for tab', tabId);
+    } catch (e) {
+      console.error('[mirror] On-demand getMediaStreamId FAILED:', e.message);
+      return { error: 'Unable to capture tab audio. Open the Mirror side panel on the Meet tab and try again.' };
+    }
   }
 
   // Create fresh offscreen doc
@@ -186,6 +197,31 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null) 
   webrtcMode = (mode === 'webrtc');
   speakerTimeline = []; // reset timeline for new recording
 
+  console.log(`[mirror] Recording started — mode: ${mode}, tabId: ${tabId}, fromFAB: ${fromFAB}`);
+
+  // Store start time so side panel can restore the timer after remount
+  await chrome.storage.local.set({ mirror_recording_start: Date.now() });
+
+  // Notify content script to show recording dot
+  chrome.tabs.sendMessage(tabId, { action: 'recording_started' }).catch(() => {});
+
+  // Only notify the injector from the side-panel path.
+  // For the FAB path, content script already called start_tracking on the injector
+  // (before sending start_recording). Sending it again would reset recordingStartMs
+  // and corrupt early event timestamps.
+  if (webrtcMode && !fromFAB) {
+    const startTime = Date.now();
+    chrome.tabs.sendMessage(tabId, {
+      action: 'start_webrtc_tracking',
+      startTime,
+    }).then(() => {
+      console.log('[mirror] start_webrtc_tracking sent to content script (t=' + startTime + ')');
+    }).catch(e => {
+      console.error('[mirror] ERROR: start_webrtc_tracking FAILED — speaker timeline will be empty!', e.message);
+      console.error('[mirror] Is content-meet.js loaded? Is this a meet.google.com tab?');
+    });
+  }
+
   chrome.action.setBadgeText({ text: '●' });
   chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
 
@@ -196,13 +232,63 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null) 
 
 async function handleStop() {
   if (!recordingActive) return;
+  const stoppedTabId = recordingTabId;
+  const wasWebrtc = webrtcMode;
   recordingActive = false;
   recordingTabId = null;
 
+  console.log(`[mirror] Stopping recording — webrtcMode: ${wasWebrtc}, speakerTimeline events before flush: ${speakerTimeline.length}`);
+
+  // ── CRITICAL: Flush WebRTC timeline BEFORE stopping the recorder ──────────
+  // If we stop the recorder first, the offscreen sends audio_chunk immediately.
+  // handleChunk reads speakerTimeline synchronously (before network I/O), so
+  // any flush events that arrive after audio_chunk is received get MISSED.
+  // Flushing first ensures all open speaking segments are in speakerTimeline
+  // by the time handleChunk processes the chunk.
+  if (wasWebrtc && stoppedTabId) {
+    try {
+      await chrome.tabs.sendMessage(stoppedTabId, { action: 'stop_webrtc_tracking' });
+      console.log('[mirror] stop_webrtc_tracking sent — waiting 400ms for flush events to arrive...');
+    } catch (e) {
+      console.warn('[mirror] stop_webrtc_tracking message failed (content script may not be loaded):', e.message);
+    }
+    // Give the content script → injector → background message chain time to complete
+    await new Promise(r => setTimeout(r, 400));
+    console.log(`[mirror] WebRTC flush complete — speakerTimeline now has ${speakerTimeline.length} events`);
+    if (speakerTimeline.length === 0) {
+      console.warn('[mirror] WARNING: speakerTimeline is EMPTY after flush! WebRTC VAD may not have captured any audio.');
+      console.warn('[mirror] Possible causes: injector not loaded, getUserMedia intercepted before injector ran, no active tracks.');
+      console.warn('[mirror] Backend will fall back to pyannote diarization for this recording.');
+    }
+  }
+
   await chrome.runtime.sendMessage({ target: 'offscreen', action: 'stop_recording' });
+
+  // Clear stored start time
+  await chrome.storage.local.remove('mirror_recording_start');
+
+  // Notify content script to hide recording dot
+  if (stoppedTabId) {
+    chrome.tabs.sendMessage(stoppedTabId, { action: 'recording_stopped' }).catch(() => {});
+  }
 
   chrome.action.setBadgeText({ text: '…' });
   chrome.action.setBadgeBackgroundColor({ color: '#1d4ed8' });
+
+  // Pre-fetch a new stream ID so the panel re-enables without another toolbar click.
+  if (stoppedTabId) {
+    setTimeout(() => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: stoppedTabId }, (newId) => {
+        if (chrome.runtime.lastError || !newId) return;
+        chrome.storage.session.set({
+          pendingStreamId: newId,
+          pendingStreamTabId: stoppedTabId,
+          pendingStreamError: null,
+        });
+        console.log('[mirror] Pre-fetched new stream ID for tab', stoppedTabId);
+      });
+    }, 2000);
+  }
 }
 
 // ── Upload chunk ──────────────────────────────────────────────────
@@ -211,13 +297,15 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
   const { mirror_token } = await getToken();
 
   if (!mirror_token) {
-    console.error('[mirror] No auth token — cannot upload chunk');
+    console.error('[mirror] ERROR: No auth token — cannot upload chunk. User must be signed in.');
     return;
   }
 
   const startMin = chunkIndex * 15;
   const endMin = startMin + 15;
   const filename = `meet_${startMin}-${endMin}min.webm`;
+
+  console.log(`[mirror] Processing chunk ${chunkIndex} (${filename}), webrtcMode: ${webrtcMode}`);
 
   // Track chunk state in local storage so popup can show progress
   await chrome.storage.local.set({
@@ -231,6 +319,12 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const audioBlob = new Blob([bytes], { type: mimeType || 'audio/webm' });
 
+    console.log(`[mirror] Chunk ${chunkIndex}: audio blob size = ${(audioBlob.size / 1024).toFixed(1)} KB`);
+
+    if (audioBlob.size === 0) {
+      throw new Error('Audio blob is empty — no audio was captured. Check tab capture permissions.');
+    }
+
     // ── Step 1: prepare (upload + transcribe + diarise) ──────────
     const form = new FormData();
     form.append('audio', audioBlob, filename);
@@ -241,7 +335,6 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
       const chunkStart = chunkIndex * CHUNK_DURATION_S;
       const chunkEnd = chunkStart + CHUNK_DURATION_S;
 
-      // Filter events overlapping this chunk's time window and normalise to chunk-relative time
       const chunkTimeline = speakerTimeline
         .filter(e => e.start < chunkEnd && e.end > chunkStart)
         .map(e => ({
@@ -250,9 +343,17 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
           end: Math.min(e.end - chunkStart, CHUNK_DURATION_S),
         }));
 
+      console.log(`[mirror] Chunk ${chunkIndex}: WebRTC mode — ${speakerTimeline.length} total events, ${chunkTimeline.length} events in this chunk's window`);
+
       if (chunkTimeline.length > 0) {
+        // Log speaker breakdown
+        const speakerBreakdown = {};
+        chunkTimeline.forEach(e => { speakerBreakdown[e.speaker] = (speakerBreakdown[e.speaker] || 0) + 1; });
+        console.log(`[mirror] Chunk ${chunkIndex}: speaker breakdown in timeline:`, speakerBreakdown);
         form.append('speaker_timeline', JSON.stringify(chunkTimeline));
-        console.log(`[mirror] chunk ${chunkIndex}: including WebRTC timeline (${chunkTimeline.length} events)`);
+      } else {
+        console.warn(`[mirror] Chunk ${chunkIndex}: WARNING — WebRTC timeline is empty! Falling back to pyannote diarization.`);
+        console.warn(`[mirror] If this is a multi-person meeting, the speaker split may be incorrect.`);
       }
     }
 
@@ -261,13 +362,18 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
       headers: { Authorization: `Bearer ${mirror_token}` },
       body: form,
     });
-    if (!prepareRes.ok) throw new Error(`Prepare failed (${prepareRes.status})`);
+    if (!prepareRes.ok) {
+      const errText = await prepareRes.text().catch(() => '');
+      throw new Error(`Prepare failed (HTTP ${prepareRes.status}): ${errText.slice(0, 200)}`);
+    }
     const { job_id } = await prepareRes.json();
+    console.log(`[mirror] Chunk ${chunkIndex}: prepare job started — job_id: ${job_id}`);
 
     const prepResult = await readSSEStream(
       `${API_URL}/api/prepare/${job_id}/stream`,
       mirror_token
     );
+    console.log(`[mirror] Chunk ${chunkIndex}: prepare done — detected_speaker: ${prepResult.detected_speaker}`);
 
     const detectedSpeaker = prepResult.detected_speaker || 'SPEAKER_00';
 
@@ -281,13 +387,18 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
       headers: { Authorization: `Bearer ${mirror_token}` },
       body: finalForm,
     });
-    if (!finalRes.ok) throw new Error(`Finalize failed (${finalRes.status})`);
+    if (!finalRes.ok) {
+      const errText = await finalRes.text().catch(() => '');
+      throw new Error(`Finalize failed (HTTP ${finalRes.status}): ${errText.slice(0, 200)}`);
+    }
     const { job_id: finJobId } = await finalRes.json();
+    console.log(`[mirror] Chunk ${chunkIndex}: finalize job started — job_id: ${finJobId}`);
 
-    await readSSEStream(
+    const finalResult = await readSSEStream(
       `${API_URL}/api/finalize/${finJobId}/stream`,
       mirror_token
     );
+    console.log(`[mirror] Chunk ${chunkIndex}: finalize done — session saved`);
 
     // ── Done ─────────────────────────────────────────────────────
     await chrome.storage.local.set({
@@ -302,7 +413,7 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
     }, 3000);
 
   } catch (err) {
-    console.error('[mirror] Chunk upload error:', err);
+    console.error(`[mirror] ERROR in chunk ${chunkIndex}:`, err.message);
     await chrome.storage.local.set({
       [`chunk_${chunkIndex}`]: { status: 'error', chunkIndex, startMin, endMin, error: err.message },
     });
@@ -312,11 +423,13 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
 }
 
 // ── SSE stream reader ─────────────────────────────────────────────
-// Service workers support fetch + ReadableStream but not EventSource.
 
 async function readSSEStream(url, token, maxMinutes = 25) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), maxMinutes * 60 * 1000);
+  const timeout = setTimeout(() => {
+    console.error(`[mirror] ERROR: SSE stream timed out after ${maxMinutes} minutes — ${url}`);
+    controller.abort();
+  }, maxMinutes * 60 * 1000);
 
   try {
     const res = await fetch(url, {
@@ -331,19 +444,24 @@ async function readSSEStream(url, token, maxMinutes = 25) {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) throw new Error('Stream closed before job completed');
+      if (done) throw new Error('Stream closed before job completed — server may have restarted or timed out');
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // hold incomplete last line
+      buffer = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         let evt;
         try { evt = JSON.parse(line.slice(6)); } catch { continue; }
         if (evt.event === 'done') return evt.data || evt;
-        if (evt.event === 'error') throw new Error(evt.message || 'Job failed');
-        // 'progress' and 'ping' events: continue reading
+        if (evt.event === 'error') {
+          console.error('[mirror] ERROR from backend SSE stream:', evt.message);
+          throw new Error(evt.message || 'Job failed');
+        }
+        if (evt.event === 'progress') {
+          console.log(`[mirror] Progress: ${evt.step} — ${evt.message}`);
+        }
       }
     }
   } finally {

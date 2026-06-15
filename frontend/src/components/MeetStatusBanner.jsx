@@ -9,6 +9,49 @@ export default function MeetStatusBanner() {
   const [streamReady, setStreamReady] = useState(false)
   const [prefetchError, setPrefetchError] = useState(null)
   const [recordError, setRecordError] = useState(null)
+  const [webrtcReady, setWebrtcReady] = useState(false)
+  const [secondsElapsed, setSecondsElapsed] = useState(0)
+  const timerRef = useRef(null)
+  const dismissTimers = useRef([])
+
+  // Start/stop the elapsed timer whenever recording state changes.
+  // On remount (tab switch, panel reopen), restore elapsed time from stored start timestamp
+  // so the counter doesn't reset to 00:00 while recording is still active.
+  useEffect(() => {
+    if (recording) {
+      chrome.storage.local.get('mirror_recording_start', ({ mirror_recording_start }) => {
+        const elapsed = mirror_recording_start
+          ? Math.floor((Date.now() - mirror_recording_start) / 1000)
+          : 0
+        setSecondsElapsed(elapsed)
+        timerRef.current = setInterval(() => setSecondsElapsed(s => s + 1), 1000)
+      })
+    } else {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+      setSecondsElapsed(0)
+    }
+    return () => clearInterval(timerRef.current)
+  }, [recording])
+
+  // Auto-dismiss completed and error chunks after 5 seconds
+  useEffect(() => {
+    const settled = chunks.filter(c => c.status === "done" || c.status === "error")
+    if (settled.length === 0) return
+
+    const t = setTimeout(() => {
+      chrome.storage.local.get(null, (items) => {
+        const keys = Object.keys(items).filter(k => {
+          const v = items[k]
+          return k.startsWith("chunk_") && (v.status === "done" || v.status === "error")
+        })
+        if (keys.length > 0) chrome.storage.local.remove(keys)
+      })
+    }, 5000)
+
+    dismissTimers.current.push(t)
+    return () => clearTimeout(t)
+  }, [chunks])
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.storage) return
@@ -51,6 +94,13 @@ export default function MeetStatusBanner() {
         setMeetTabId(tid)
         currentTabId = tid
         checkStreamReady(tid)
+        if (tid) {
+          chrome.runtime.sendMessage({ action: 'get_webrtc_available', tabId: tid }, (res) => {
+            if (!chrome.runtime.lastError && res) setWebrtcReady(res.available)
+          })
+        } else {
+          setWebrtcReady(false)
+        }
       })
     }
 
@@ -75,38 +125,46 @@ export default function MeetStatusBanner() {
 
   function handleStartRecording() {
     setRecordError(null)
-    // Push a fresh Supabase token into the SW right before recording starts.
-    // The SW stores tokens manually and doesn't auto-refresh — syncing here
-    // ensures the chunk upload won't fail with a stale JWT.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        chrome.runtime.sendMessage({
-          action: "sync_token",
-          token: session.access_token,
-          userId: session.user.id,
-        }).catch(() => {})
+    if (!meetTabId) { setRecordError('No Meet tab found'); return }
+
+    // Get a fresh stream ID RIGHT NOW at button-click time.
+    // Stream IDs from getMediaStreamId expire within seconds — pre-fetching
+    // them on toolbar-icon click (the old approach) caused "Error starting tab capture"
+    // because too much time passed before the offscreen doc called getUserMedia.
+    chrome.tabCapture.getMediaStreamId({ targetTabId: meetTabId }, (freshStreamId) => {
+      if (chrome.runtime.lastError || !freshStreamId) {
+        const err = chrome.runtime.lastError?.message || 'Unknown error'
+        console.error('[mirror-panel] getMediaStreamId failed:', err)
+        setRecordError(`Tab capture failed: ${err}`)
+        return
       }
-      chrome.runtime.sendMessage({
-        action: "start_recording_with_stream",
-        tabId: meetTabId,
-        mode: "tabcapture",
-      }, (res) => {
-        if (chrome.runtime.lastError || res?.error) {
-          const msg = res?.error || chrome.runtime.lastError?.message || "Failed to start"
-          setRecordError(msg)
+
+      const startWithStream = (streamId) => {
+        const recMode = webrtcReady ? "webrtc" : "tabcapture"
+        chrome.runtime.sendMessage({
+          action: "start_recording_with_stream",
+          tabId: meetTabId,
+          mode: recMode,
+          streamId,
+        }, (res) => {
+          if (chrome.runtime.lastError || res?.error) {
+            const msg = res?.error || chrome.runtime.lastError?.message || "Failed to start"
+            setRecordError(msg)
+          }
+        })
+      }
+
+      // Sync a fresh Supabase token before recording (SW tokens can go stale)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          chrome.runtime.sendMessage({
+            action: "sync_token",
+            token: session.access_token,
+            userId: session.user.id,
+          }).catch(() => {})
         }
-      })
-    }).catch(() => {
-      chrome.runtime.sendMessage({
-        action: "start_recording_with_stream",
-        tabId: meetTabId,
-        mode: "tabcapture",
-      }, (res) => {
-        if (chrome.runtime.lastError || res?.error) {
-          const msg = res?.error || chrome.runtime.lastError?.message || "Failed to start"
-          setRecordError(msg)
-        }
-      })
+        startWithStream(freshStreamId)
+      }).catch(() => startWithStream(freshStreamId))
     })
   }
 
@@ -139,20 +197,20 @@ export default function MeetStatusBanner() {
                 }} />
               )}
               <span style={{ fontSize: 13, fontWeight: 600, color: recording ? "#fca5a5" : "#f0eeff" }}>
-                {recording ? "Recording…" : "Google Meet detected"}
+                {recording
+                  ? `${String(Math.floor(secondsElapsed / 60)).padStart(2, "0")}:${String(secondsElapsed % 60).padStart(2, "0")}  ·  Recording`
+                  : "Google Meet detected"}
               </span>
             </div>
 
             {!recording ? (
-              <button onClick={handleStartRecording} disabled={!streamReady} style={{
-                background: streamReady
-                  ? "linear-gradient(90deg, #1d4ed8, #0891b2)"
-                  : "rgba(29,78,216,0.15)",
-                border: streamReady ? "none" : "1px solid rgba(29,78,216,0.3)",
+              <button onClick={handleStartRecording} style={{
+                background: "linear-gradient(90deg, #1d4ed8, #0891b2)",
+                border: "none",
                 borderRadius: 8, padding: "7px 16px",
-                color: streamReady ? "#fff" : "#4a6fa8",
+                color: "#fff",
                 fontSize: 13, fontWeight: 600,
-                cursor: streamReady ? "pointer" : "not-allowed",
+                cursor: "pointer",
                 flexShrink: 0,
               }}>
                 Start Recording
@@ -168,21 +226,6 @@ export default function MeetStatusBanner() {
               </button>
             )}
           </div>
-
-          {/* Prompt to click the toolbar icon if stream not ready */}
-          {!recording && !streamReady && !prefetchError && (
-            <div style={{ marginTop: 10, fontSize: 12, color: "#8b89aa", lineHeight: 1.5 }}>
-              Click the <strong style={{ color: "#a5b4fc" }}>Mirror icon</strong> in the Chrome toolbar
-              to activate recording for this tab.
-            </div>
-          )}
-
-          {/* Show the actual Chrome error if pre-fetch failed */}
-          {!recording && prefetchError && (
-            <div style={{ marginTop: 10, fontSize: 11, color: "#f87171", lineHeight: 1.5 }}>
-              Chrome error: {prefetchError}
-            </div>
-          )}
 
           {recordError && (
             <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>{recordError}</div>

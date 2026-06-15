@@ -1233,6 +1233,14 @@ def get_sessions(user_id: str = Depends(get_current_user)):
     out = []
     for s in res.data:
         try:
+            all_sp = json.loads(s["all_speakers_signals_json"]) if s.get("all_speakers_signals_json") else {}
+            # Build a compact per-speaker timeline for the history chart.
+            # Each speaker contributes their 60-second window timeline (wpm + speaking_time).
+            speakers_timeline = {}
+            for sp_id, sp_signals in all_sp.items():
+                tl = sp_signals.get("timeline")
+                if tl:
+                    speakers_timeline[sp_id] = tl
             out.append({
                 "session_id": s["id"],
                 "context": s["context"],
@@ -1243,8 +1251,8 @@ def get_sessions(user_id: str = Depends(get_current_user)):
                 "insights": json.loads(s["insights_json"]),
                 "signals": json.loads(s["signals_json"]),
                 "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
-                "available_speakers": list(json.loads(s["all_speakers_signals_json"]).keys())
-                    if s.get("all_speakers_signals_json") else [],
+                "available_speakers": list(all_sp.keys()),
+                "speakers_timeline": speakers_timeline,
                 "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
             })
         except Exception as e:
@@ -1448,9 +1456,11 @@ def get_profile(user_id: str = Depends(get_current_user)):
     elif completeness < 90: completeness_label = "Established"
     else:                   completeness_label = "Deep mirror"
 
-    _MF_VERSION = 3  # bump when tip field or prompt changes to invalidate old cache
+    _MF_VERSION = 4  # bump when tip field or prompt changes to invalidate old cache
     mf_cache_key = f"{user_id}:{n}:v{_MF_VERSION}"
     mirror_feed = _mirror_feed_cache.get(mf_cache_key)
+
+    previous_feed: list = []  # existing feed passed as context when regenerating
 
     if mirror_feed is None:
         # Try Supabase cache
@@ -1464,6 +1474,12 @@ def get_profile(user_id: str = Depends(get_current_user)):
                     parsed_feed = json.loads(row["mirror_feed_json"])
                     if parsed_feed:  # discard any previously-cached empty lists
                         mirror_feed = parsed_feed
+                # Always load previous feed (even if stale) so synthesizer can evolve it
+                elif row.get("mirror_feed_json"):
+                    try:
+                        previous_feed = json.loads(row["mirror_feed_json"]) or []
+                    except Exception:
+                        previous_feed = []
         except Exception:
             pass
 
@@ -1498,7 +1514,11 @@ def get_profile(user_id: str = Depends(get_current_user)):
             for p in parsed
         ]
         user_summary = _get_user_summary(user_id)
-        mirror_feed = mirror_feed_synth.synthesize(feed_sessions, user_summary=user_summary)
+        mirror_feed = mirror_feed_synth.synthesize(
+            feed_sessions,
+            user_summary=user_summary,
+            existing_feed=previous_feed,
+        )
 
         # Only cache a successful result — never persist an empty feed,
         # so a Groq failure or sparse-data session doesn't suppress the feed permanently.
