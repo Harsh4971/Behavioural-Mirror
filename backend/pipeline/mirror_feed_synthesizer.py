@@ -9,13 +9,17 @@ class MirrorFeedSynthesizer:
         self.client = Groq(api_key=api_key)
 
     def synthesize(self, sessions: list, user_summary: str = None,
-                   existing_feed: list = None) -> list:
+                   existing_feed: list = None, signal_trends: list = None,
+                   signal_patterns: list = None) -> list:
         """
         sessions: list of dicts with keys:
           context, date, fingerprint (str), notable_pattern (str)
         user_summary: consolidated behavioral summary (present after 12+ sessions)
         existing_feed: previously surfaced feed items — passed as context so the
           feed grows and evolves rather than resetting on every new session.
+        signal_trends: computed numeric trends (filler rate, wpm, talk ratio) —
+          used to generate trend_up / trend_down items with hard evidence.
+        signal_patterns: consistently flagged signal patterns across sessions.
         Returns list of mirror feed insight dicts, empty if < 2 usable sessions.
         """
         usable = [
@@ -25,10 +29,12 @@ class MirrorFeedSynthesizer:
         if not user_summary and len(usable) < 2:
             return []
 
+        trends_block = self._format_signal_trends(signal_trends or [], signal_patterns or [])
+
         prompt = (
-            self._build_consolidated_prompt(user_summary, usable, existing_feed or [])
+            self._build_consolidated_prompt(user_summary, usable, existing_feed or [], trends_block)
             if user_summary
-            else self._build_prompt(usable, existing_feed or [])
+            else self._build_prompt(usable, existing_feed or [], trends_block)
         )
         try:
             response = self.client.chat.completions.create(
@@ -41,8 +47,32 @@ class MirrorFeedSynthesizer:
         except Exception:
             return []
 
+    def _format_signal_trends(self, trends: list, patterns: list) -> str:
+        parts = []
+        if trends:
+            parts.append(
+                "MEASURED SIGNAL TRENDS — hard numeric data from early vs recent sessions "
+                "(IMPORTANT: use these directly to generate trend_up or trend_down items):"
+            )
+            for t in trends:
+                arrow = "↑ IMPROVED" if t["direction"] == "improved" else "↓ DECLINED"
+                item_type = "trend_up" if t["direction"] == "improved" else "trend_down"
+                parts.append(
+                    f'  {arrow} {t["signal"].replace("_", " ")}: '
+                    f'{t["old"]}{t["unit"]} → {t["new"]}{t["unit"]} '
+                    f'({("+" if t["change_pct"] > 0 else "")}{t["change_pct"]}%) '
+                    f'→ generate a "{item_type}" item for this'
+                )
+        if patterns:
+            parts.append("CONSISTENT SIGNAL PATTERNS (flagged across many sessions):")
+            for p in patterns:
+                parts.append(f"  · {p['detail']}")
+        if not parts:
+            return ""
+        return "\n" + "\n".join(parts) + "\n"
+
     def _build_consolidated_prompt(self, user_summary: str, recent_sessions: list,
-                                   existing_feed: list) -> str:
+                                   existing_feed: list, trends_block: str = "") -> str:
         recent_block = ""
         if recent_sessions:
             recent_block = "\nMOST RECENT SESSIONS:\n"
@@ -59,7 +89,7 @@ This feed updates every time new sessions come in — items accumulate and evolv
 
 CONSOLIDATED BEHAVIORAL PROFILE (built from all past sessions):
 {user_summary}
-{recent_block}{existing_block}
+{recent_block}{trends_block}{existing_block}
 BEHAVIORAL THEME CLUSTERS — each feed item must come from a DIFFERENT cluster:
 
 CLUSTER A — Space & Listening: talk ratio, giving vs. taking space, interruptions, monologues, whether they acknowledge what was said before responding
@@ -110,7 +140,7 @@ type must be exactly one of: "pattern", "context_contrast", "trend_up", "trend_d
 - "trend_up" — something that has improved over time or in recent sessions
 - "trend_down" — something that has declined or worsened"""
 
-    def _build_prompt(self, sessions: list, existing_feed: list) -> str:
+    def _build_prompt(self, sessions: list, existing_feed: list, trends_block: str = "") -> str:
         n = len(sessions)
 
         if n <= 3:
@@ -154,7 +184,7 @@ This feed updates every time new sessions come in — items accumulate and evolv
 
 SESSIONS BY CONTEXT:
 {''.join(blocks)}
-{existing_block}
+{trends_block}{existing_block}
 With {n} sessions, {depth_note}
 
 BEHAVIORAL THEME CLUSTERS — each feed item must come from a DIFFERENT cluster:
