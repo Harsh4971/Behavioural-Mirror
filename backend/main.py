@@ -1438,7 +1438,7 @@ def get_profile(user_id: str = Depends(get_current_user)):
     elif completeness < 90: completeness_label = "Established"
     else:                   completeness_label = "Deep mirror"
 
-    _MF_VERSION = 4  # bump when tip field or prompt changes to invalidate old cache
+    _MF_VERSION = 5  # bump when tip field or prompt changes to invalidate old cache
     mf_cache_key = f"{user_id}:{n}:v{_MF_VERSION}"
     mirror_feed = _mirror_feed_cache.get(mf_cache_key)
 

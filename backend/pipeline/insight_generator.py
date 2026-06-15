@@ -206,21 +206,27 @@ Do NOT flag ✓ signals as issues. Coach only on ✗ signals.
 {chr(10).join(lines)}
 """
 
-        # ── Session history (fingerprints) ────────────────────────────
+        # ── Session history (fingerprints + anti-repetition) ─────────
         history_section = ""
         if session_history:
             n = len(session_history)
             lines = []
-            for i, s in enumerate(session_history):
+            for i, s in enumerate(session_history[-5:]):  # last 5 only to stay focused
                 ctx = s["context"].replace("_", " ")
                 fp = s.get("fingerprint") or s.get("summary", "")
                 if fp:
-                    lines.append(f"  Session {i+1} ({s['date']}, {ctx}):\n  {fp}")
+                    lines.append(f"  Session {i+1} ({s['date']}, {ctx}): {fp[:280]}")
             if lines:
                 history_section = f"""
-PAST SESSION FINGERPRINTS — this is session {n + 1} for this user.
-Use these to identify what's recurring vs what's new in this conversation.
+PAST SESSION FINGERPRINTS — this is session {n + 1} for this user:
 {chr(10).join(lines)}
+
+ANTI-REPETITION DIRECTIVE — THIS IS CRITICAL:
+The fingerprints above show what has already been observed and documented. Do NOT simply restate these patterns as your primary findings for this session.
+— If a known pattern appears in this conversation, you may reference it in AT MOST one sentence of one observation. Then move on.
+— Your primary job is to find what ELSE is true about this person — patterns and qualities not yet captured.
+— Actively look past the most obvious surface signal (talk ratio, dominance) and go deeper: HOW they think, argue, reframe, navigate, connect, challenge, and respond.
+— A repeat observation is a wasted observation. Surprise the user with something they haven't seen before.
 """
 
         # ── Resonance calibration ─────────────────────────────────────
@@ -242,22 +248,57 @@ Use these to identify what's recurring vs what's new in this conversation.
 
 CONTEXT: {types_str} — {coaching_guide}
 {transcript_section}{signals_section}{baseline_section}{history_section}{resonance_section}
-WHAT TO LOOK FOR (search the transcript specifically for these):
-1. Questions the other person asked that you didn't fully or directly answer
-2. Opinions, concerns, or points they raised that you talked past or didn't acknowledge
-3. Moments where you spoke for an extended stretch without giving them space to respond
-4. Interruptions — where you cut in before they finished their thought
-5. Moments where you seemed to misread what was being asked and answered something else
+WHAT TO LOOK FOR — scan the transcript across ALL of these dimensions. Do not default to the obvious:
+
+PERSPECTIVE & THINKING STYLE
+1. Do they take a conventional or contrarian view? Do they reframe the question before answering it?
+2. How do they build an argument — through logic, personal experience, analogy, examples, or principles?
+3. Do they think out loud (ideas forming in real time) or present already-formed positions?
+4. Do they zoom to the big picture naturally, or drill into specifics? Which happens when pushed?
+5. Do they introduce new angles that weren't in the conversation before, or mostly react to what's raised?
+
+CLARITY & EXPRESSION
+6. Do they simplify complex ideas, or add nuance to simple ones?
+7. How precise is their language — do they commit ("this is wrong") or hedge constantly ("kind of", "I think maybe")?
+8. Do they use vivid, concrete examples or stay abstract?
+9. How do they structure a point — building to a conclusion, or leading with it?
+
+CONVERSATION NAVIGATION
+10. Who drives the topics in this conversation — them or the other person?
+11. Do they shift the tone — lightening heavy moments, or deepening casual ones?
+12. How do they transition between subjects — abruptly, with bridges, or by connecting ideas?
+13. Do they circle back to things raised earlier, or let threads drop?
+
+HANDLING CHALLENGE & PUSHBACK
+14. When challenged or pushed back on, do they get curious, defensive, or simply louder?
+15. Do they actually change their position during the conversation? What moves them?
+16. How do they handle a question they don't want to answer or can't answer well?
+
+LISTENING & RESPONSE QUALITY
+17. Do they build on what the other person just said, or immediately pivot to their own point?
+18. Do they ask follow-up questions out of genuine curiosity, or use questions rhetorically?
+19. Do they acknowledge the other person's point before responding, or talk past it?
+20. What's the quality of their questions — surface-level, probing, or reframing?
+
+SELF-AWARENESS & META-COMMUNICATION
+21. Do they catch themselves mid-thought, correct course, or acknowledge when they're uncertain?
+22. Do they notice and adapt when the other person seems disengaged, confused, or unconvinced?
+23. Do they signal clearly when they're confident vs. when they're speculating?
+
+WARMTH, HUMOR & RELATIONAL SIGNALS
+24. Are there moments of humor, warmth, or levity? How are they deployed — to connect, deflect, or ease tension?
+25. Do they validate the other person's experience or viewpoint before moving on?
 
 RULES:
-1. Ground every observation in something that actually happened in the transcript
-2. Quote directly (in "quotes") when it makes the point concrete — be specific about where in the conversation
-3. Never refer to speakers as SPEAKER_00 or SPEAKER_01 — use "you" and "the other person"
-4. Write directly to the user ("you", "your")
-5. Be specific and honest — no vague generalities
-6. Don't flag signals that are within normal range for this context type
-7. If session history exists, explicitly note what's recurring vs what's different this time
-8. Output valid JSON only — no markdown, no code fences
+1. Ground every observation in something that actually happened — quote directly (in "quotes") when it makes the point concrete
+2. Never refer to speakers as SPEAKER_00 or SPEAKER_01 — use "you" and "the other person"
+3. Write directly to the user ("you", "your")
+4. DIVERSITY RULE: Each of the 3 observations must cover a completely different dimension cluster from the list above. Never write 3 variations of the same theme.
+5. STRENGTH RULE: At least one observation must describe a genuine strength, a distinctive quality, or something interesting about how this person communicates — not just a coaching point
+6. ANTI-REPETITION RULE: Already-known patterns from session history get at most one brief reference total. Find what's NEW or nuanced about THIS conversation.
+7. Don't flag signals that are within normal range for this context type
+8. Specific beats vague: "you dominated the conversation" is not an observation. "When they raised X, you pivoted immediately to Y without acknowledging their point" is.
+9. Output valid JSON only — no markdown, no code fences
 
 Output this exact JSON:
 {{
@@ -267,17 +308,17 @@ Output this exact JSON:
   "observations": [
     {{
       "signal": "signal_name",
-      "observation": "Specific observation grounded in what actually happened. Quote from transcript where it makes the point. Reference where in the conversation it occurred.",
+      "observation": "Specific observation grounded in what actually happened. Quote from transcript where it makes the point concrete. Each observation must cover a DIFFERENT behavioral dimension — perspective/thinking, clarity/expression, conversation navigation, handling challenge, listening quality, self-awareness, or warmth/relational.",
       "resonance_prompt": "A genuine reflective question specific to this moment — not generic."
     }},
     {{
-      "signal": "different_signal",
-      "observation": "Second observation on a different aspect of the conversation.",
+      "signal": "different_signal_different_cluster",
+      "observation": "Second observation — must cover a dimension NOT covered by observation 1. At least one observation across the three must be about a strength or distinctive quality.",
       "resonance_prompt": "Second reflective question."
     }},
     {{
-      "signal": "third_signal",
-      "observation": "Third observation.",
+      "signal": "third_signal_third_cluster",
+      "observation": "Third observation — must cover a dimension not covered by observations 1 or 2.",
       "resonance_prompt": "Third reflective question."
     }}
   ],
@@ -305,7 +346,7 @@ Output this exact JSON:
     }}
   ],
   "notable_pattern": "The single most interesting or surprising behavioral pattern from this session. One sentence.",
-  "fingerprint": "200-300 words. Describe what was observed in this {context.replace('_', ' ')} conversation: how the person engaged, how they handled questions directed at them, what they avoided, how they responded under pressure or when challenged, their listening patterns, whether they gave the other person space. Write in behavioral terms — no raw numbers. This will be used as context in future AI sessions to understand this person's patterns.",
+  "fingerprint": "200-300 words. A rich behavioral portrait of THIS {context.replace('_', ' ')} conversation covering MULTIPLE dimensions — aim for at least 4 of these 7: (1) thinking style: how they frame arguments, contrarian vs conventional, big-picture vs detail; (2) clarity and expression: language precision, use of examples, how they structure a point; (3) conversation navigation: who drove topics, tone shifts, how they transitioned; (4) handling challenge: response to pushback, whether they shifted position, what moved them; (5) listening quality: whether they built on what was said or pivoted, quality of their questions; (6) self-awareness: catching themselves, adapting mid-conversation, signaling uncertainty; (7) warmth and relational style: humor, validation, how they calibrate to the other person. Write in behavioral terms — no raw numbers. If talk ratio or dominance is already established across prior sessions, do NOT make it the centrepiece of this fingerprint — mention it briefly if relevant, then cover other dimensions. This fingerprint feeds future AI sessions and must build a richer picture each time.",
   "data_confidence": "high"
 }}"""
 

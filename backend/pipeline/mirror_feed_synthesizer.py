@@ -60,16 +60,20 @@ This feed updates every time new sessions come in — items accumulate and evolv
 CONSOLIDATED BEHAVIORAL PROFILE (built from all past sessions):
 {user_summary}
 {recent_block}{existing_block}
-BEHAVIORAL DIMENSIONS TO DRAW FROM (pick different ones for each insight):
-- Airtime & talk ratio — how much space they take vs. give
-- Listening & acknowledgment — whether they receive and respond to what was said
-- Emotional tone & composure — nervousness, reactivity, warmth
-- Clarity & structure — how organized and clear their speech is
-- Filler words & delivery confidence
-- Adaptability — how they adjust when the context or conversation shifts
-- Turn-taking & interruptions — how they manage conversation flow
-- Trend over time — how early sessions compare to recent ones
-- Context-specific vs universal tendencies
+BEHAVIORAL THEME CLUSTERS — each feed item must come from a DIFFERENT cluster:
+
+CLUSTER A — Space & Listening: talk ratio, giving vs. taking space, interruptions, monologues, whether they acknowledge what was said before responding
+CLUSTER B — Clarity & Expression: how they structure arguments, use of examples/analogies, language precision (hedging vs. confident assertion), how they explain complex ideas
+CLUSTER C — Perspective & Thinking Style: contrarian vs. conventional views, reframing questions, big-picture vs. detail orientation, whether they introduce new angles or only react to what's raised
+CLUSTER D — Conversation Navigation: who drives topics, tone shifts (lightening or deepening), how they transition between ideas, whether they redirect or follow
+CLUSTER E — Handling Challenge: response to pushback or disagreement, whether they change position, how they handle questions they don't want to answer
+CLUSTER F — Curiosity & Questions: quality of questions asked, whether they follow up out of genuine interest, what their questions reveal about how they engage
+CLUSTER G — Self-Awareness & Adaptability: catching themselves mid-thought, acknowledging uncertainty, adapting when the other person seems confused or unconvinced
+CLUSTER H — Warmth & Relational Signals: humor, validation of the other person, emotional calibration, how they establish or maintain connection
+CLUSTER I — Trend over time: how behavior in recent sessions compares to earlier ones (only if clear change exists)
+CLUSTER J — Context contrast: how behavior differs meaningfully between different types of conversations (only if 2+ contexts with clear difference)
+
+THEME CLUSTER RULE: No two items may come from the same cluster. If you find yourself writing two items that are both about, say, talk ratio and dominance (both Cluster A), merge them into one and find a different cluster for the second slot. A feed covering 5 different clusters is far more valuable than one that restates the same pattern 5 ways.
 
 TASK: Output the COMPLETE updated feed — existing items (kept or evolved) PLUS any new ones.
 
@@ -86,10 +90,9 @@ RULES FOR NEW ITEMS:
 
 GENERAL RULES:
 8. Ground every insight in what the behavioral profile actually shows — no generic observations
-9. Each item must cover a DIFFERENT dimension — never two items about the same root behavior
-10. Write directly to the person ("you", "your")
-11. Be specific and honest
-12. Output valid JSON only — no markdown, no code fences
+9. Write directly to the person ("you", "your")
+10. Be specific and honest
+11. Output valid JSON only — no markdown, no code fences
 
 Output a JSON array (all existing + any new items):
 [
@@ -154,16 +157,21 @@ SESSIONS BY CONTEXT:
 {existing_block}
 With {n} sessions, {depth_note}
 
-BEHAVIORAL DIMENSIONS TO DRAW FROM (pick different ones for each insight):
-- Airtime & talk ratio — how much space they take vs. give
-- Listening & acknowledgment — whether they receive and respond to what was said
-- Emotional tone & composure — nervousness, reactivity, warmth
-- Clarity & structure — how organized and clear their speech is
-- Filler words & delivery confidence
-- Adaptability — how they adjust when the context or conversation shifts
-- Turn-taking & interruptions — how they manage conversation flow
-- Trend over time — how early sessions compare to recent ones
-{context_diff_line}
+BEHAVIORAL THEME CLUSTERS — each feed item must come from a DIFFERENT cluster:
+
+CLUSTER A — Space & Listening: talk ratio, giving vs. taking space, interruptions, monologues, whether they acknowledge what was said before responding
+CLUSTER B — Clarity & Expression: how they structure arguments, use of examples/analogies, language precision (hedging vs. confident assertion), how they explain complex ideas
+CLUSTER C — Perspective & Thinking Style: contrarian vs. conventional views, reframing questions, big-picture vs. detail orientation, whether they introduce new angles or only react to what's raised
+CLUSTER D — Conversation Navigation: who drives topics, tone shifts (lightening or deepening), how they transition between ideas, whether they redirect or follow
+CLUSTER E — Handling Challenge: response to pushback or disagreement, whether they change position, how they handle questions they don't want to answer
+CLUSTER F — Curiosity & Questions: quality of questions asked, whether they follow up out of genuine interest, what their questions reveal about how they engage
+CLUSTER G — Self-Awareness & Adaptability: catching themselves mid-thought, acknowledging uncertainty, adapting when the other person seems confused or unconvinced
+CLUSTER H — Warmth & Relational Signals: humor, validation of the other person, emotional calibration, how they establish or maintain connection
+{context_diff_line}CLUSTER I — Trend over time: how behavior in recent sessions compares to earlier ones (only if clear change)
+CLUSTER J — Context contrast: how behavior differs meaningfully between different types of conversations (only if 2+ contexts, clear difference)
+
+THEME CLUSTER RULE: No two items may come from the same cluster. If two items are both about talk ratio and dominance (both Cluster A), merge them into one and find a different cluster for the second slot. A feed covering 5 different clusters is far more valuable than one that restates the same pattern 5 ways.
+
 TASK: Output the COMPLETE updated feed — existing items (kept or evolved) PLUS any new ones.
 
 RULES FOR EXISTING ITEMS:
@@ -178,12 +186,11 @@ RULES FOR NEW ITEMS:
 7. Do not pad — a focused feed beats filler. Max 8 items total.
 
 GENERAL RULES:
-8. Each item must cover a DIFFERENT dimension — never two items about the same root behavior
-9. Be specific — reference what was actually observed, not generic advice
-10. Write directly to the person ("you", "your")
-11. With few sessions, be honest about uncertainty — say "across your sessions so far" not "you always"
-12. Never refer to SPEAKER_00 or SPEAKER_01 — use "you" and "the other person"
-13. Output valid JSON only — no markdown, no code fences, no extra text
+8. Be specific — reference what was actually observed, not generic advice
+9. Write directly to the person ("you", "your")
+10. With few sessions, be honest about uncertainty — say "across your sessions so far" not "you always"
+11. Never refer to SPEAKER_00 or SPEAKER_01 — use "you" and "the other person"
+12. Output valid JSON only — no markdown, no code fences, no extra text
 
 Output a JSON array (all existing + any new items):
 [
@@ -245,7 +252,7 @@ type must be exactly one of:
                 if tip:
                     entry["tip"] = tip
                 result.append(entry)
-                if len(result) >= 4:
+                if len(result) >= 8:
                     break
             return result
         except Exception:
