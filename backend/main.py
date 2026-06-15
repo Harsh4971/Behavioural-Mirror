@@ -1397,10 +1397,46 @@ def get_profile(user_id: str = Depends(get_current_user)):
 
     # Recurring coaching areas
     from collections import Counter as _Counter
-    coaching_areas = []
+
+    def _normalize_area(area: str) -> str:
+        a = area.lower().strip()
+        _SYNONYMS = {
+            "active listening": "listening",
+            "deep listening": "listening",
+            "listen more": "listening",
+            "talk ratio": "talk balance",
+            "talk ratio balance": "talk balance",
+            "giving space": "talk balance",
+            "space for others": "talk balance",
+            "question quality": "asking questions",
+            "question asking": "asking questions",
+            "probing questions": "asking questions",
+            "follow-up questions": "asking questions",
+            "self awareness": "self-awareness",
+            "self-reflection": "self-awareness",
+            "self reflection": "self-awareness",
+        }
+        return _SYNONYMS.get(a, a)
+
+    coaching_map: dict = {}
     for p in parsed:
-        coaching_areas.extend([c.get("area") for c in p["ins"].get("coaching_suggestions", [])[:2] if c.get("area")])
-    recurring_coaching = [{"area": a, "count": c} for a, c in _Counter(coaching_areas).most_common(3) if c >= 2]
+        for c in p["ins"].get("coaching_suggestions", [])[:2]:
+            area = c.get("area", "")
+            if not area:
+                continue
+            key = _normalize_area(area)
+            coaching_map.setdefault(key, []).append(c.get("suggestion", ""))
+
+    coaching_counter = _Counter({k: len(v) for k, v in coaching_map.items()})
+    recurring_coaching = [
+        {
+            "area": a.title(),
+            "count": c,
+            "tip": coaching_map[a][-1] if coaching_map.get(a) else "",
+        }
+        for a, c in coaching_counter.most_common(3)
+        if c >= 2
+    ]
 
     # Personality synthesis
     _dim_paths = {

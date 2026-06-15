@@ -618,27 +618,25 @@ export default function ProfileView({ active, onUpload }) {
             borderLeft: "3px solid rgba(59,130,246,0.65)",
             paddingLeft: 16, marginTop: 10,
           }}>
-            <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-              <p style={{ flex: 1, fontSize: 14, color: "#c4c2d8",
-                lineHeight: 1.9, margin: 0 }}>
-                {personality.paragraph}
-              </p>
-              {keywords.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-                  {keywords.map((kw, i) => (
-                    <span key={i} style={{
-                      fontSize: 12, fontWeight: 600, padding: "5px 14px",
-                      borderRadius: 6, letterSpacing: 0.2,
-                      background: "linear-gradient(#151922, #151922) padding-box, linear-gradient(135deg, rgba(59,130,246,0.5), rgba(34,211,238,0.5)) border-box",
-                      border: "1px solid transparent",
-                      color: "#60a5fa", whiteSpace: "nowrap",
-                    }}>
-                      {kw}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            <p style={{ fontSize: 14, color: "#c4c2d8",
+              lineHeight: 1.9, margin: 0, textAlign: "justify" }}>
+              {personality.paragraph}
+            </p>
+            {keywords.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+                {keywords.map((kw, i) => (
+                  <span key={i} style={{
+                    fontSize: 12, fontWeight: 600, padding: "5px 14px",
+                    borderRadius: 6, letterSpacing: 0.2,
+                    background: "linear-gradient(#151922, #151922) padding-box, linear-gradient(135deg, rgba(59,130,246,0.5), rgba(34,211,238,0.5)) border-box",
+                    border: "1px solid transparent",
+                    color: "#60a5fa", whiteSpace: "nowrap",
+                  }}>
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         </Reveal>
@@ -675,20 +673,26 @@ export default function ProfileView({ active, onUpload }) {
               const accent = ["#f87171", "#fb923c", "#818cf8"][i] || "#8b89aa"
               return (
                 <div key={item.area} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "12px 16px", borderRadius: 10,
+                  padding: "14px 16px", borderRadius: 10,
                   background: "#151922", border: `1px solid #1e2438`,
                   borderLeft: `3px solid ${accent}`,
                 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#f0eeff",
-                    textTransform: "capitalize" }}>
-                    {item.area}
-                  </span>
-                  <span style={{ fontSize: 11, color: accent, fontWeight: 700,
-                    background: `${accent}15`, border: `1px solid ${accent}30`,
-                    borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
-                    flagged {item.count}× across sessions
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: item.tip ? 8 : 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff",
+                      textTransform: "capitalize" }}>
+                      {item.area}
+                    </span>
+                    <span style={{ fontSize: 11, color: accent, fontWeight: 600,
+                      background: `${accent}15`, border: `1px solid ${accent}30`,
+                      borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap", marginLeft: 12 }}>
+                      {item.count} of {session_count} sessions
+                    </span>
+                  </div>
+                  {item.tip && (
+                    <p style={{ margin: 0, fontSize: 12, color: "#8b89aa", lineHeight: 1.65 }}>
+                      {item.tip}
+                    </p>
+                  )}
                 </div>
               )
             })}

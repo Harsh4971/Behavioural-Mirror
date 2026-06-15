@@ -7,8 +7,6 @@
 body {
   width: 100%;
   background: #0f1117;
-  background-image: radial-gradient(rgba(255,255,255,0.028) 1px, transparent 1px);
-  background-size: 28px 28px;
   color: #f0eeff;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
