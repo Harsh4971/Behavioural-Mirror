@@ -114,9 +114,18 @@ SCORING — derive dimension scores (integers 0–100) from the averages:
 - composure: INVERT nervousness → (5-nervousness_avg)/4*100
 - clarity: average of clarity and adaptability avgs, map to 0–100
 
+TAGS RULES:
+- Output exactly 3–4 short keyword phrases that capture this person's most distinctive behavioral traits
+- Each tag: 1–3 words maximum
+- Draw from what the fingerprints actually show — thinking style, argument style, conversation navigation, how they handle challenge, etc.
+- Do NOT use generic score labels like "Confident" or "Composed" — those are already shown elsewhere
+- Examples of good tags: "Reframes Questions", "Principle-Led", "Topic Driver", "Debate-Oriented", "Analogy Builder", "Contrarian Thinker", "Tone Shifter", "Position Holder"
+- Make the tags feel specific to this person, not generic personality adjectives
+
 Output valid JSON only — no markdown, no code fences, no extra text:
 {{
   "paragraph": "3–4 sentence behavioral portrait. No raw numbers. Grounded in observed patterns.",
+  "tags": ["Tag One", "Tag Two", "Tag Three", "Tag Four"],
   "dimensions": [
     {{
       "key": "confidence",
@@ -169,6 +178,7 @@ Output valid JSON only — no markdown, no code fences, no extra text:
 
             return {
                 "paragraph": "Your behavioral profile is being built. Upload more sessions for deeper insights.",
+                "tags": [],
                 "shape_narrative": "",
                 "dimensions": [
                     {"key": "confidence",    "name": "Confidence",            "score": _scale("confidence"),               "label": "Moderate"},

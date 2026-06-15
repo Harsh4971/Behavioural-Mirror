@@ -36,22 +36,6 @@ const TALK_RATIO_NORMS = {
   developmental: [25, 45], support: [15, 40], intimate: [35, 60],
 }
 
-const DIMENSION_KEYWORDS = {
-  confidence:    s => s >= 65 ? "Confident"  : s >= 40 ? "Measured"   : "Cautious",
-  assertiveness: s => s >= 65 ? "Direct"     : s >= 40 ? "Balanced"   : "Reserved",
-  listening:     s => s >= 65 ? "Present"    : s >= 40 ? "Attentive"  : "Directive",
-  composure:     s => s >= 65 ? "Composed"   : s >= 40 ? "Steady"     : "Reactive",
-  clarity:       s => s >= 65 ? "Clear"      : s >= 40 ? "Articulate" : "Complex",
-}
-
-function deriveKeywords(dimensions) {
-  if (!dimensions?.length) return []
-  return [...dimensions]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map(d => DIMENSION_KEYWORDS[d.key]?.(d.score))
-    .filter(Boolean)
-}
 
 function useCountUp(target, duration = 900) {
   const [value, setValue] = useState(0)
@@ -530,7 +514,7 @@ export default function ProfileView({ active, onUpload }) {
           blind_spots, completeness, completeness_label, mirror_feed,
           recurring_coaching } = profile
 
-  const keywords = deriveKeywords(personality?.dimensions)
+  const keywords = (personality?.tags || []).slice(0, 4)
 
   const chartData = trends.map((point, i) => ({
     ...point,
