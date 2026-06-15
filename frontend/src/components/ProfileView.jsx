@@ -153,35 +153,55 @@ function MirrorFeed({ insights }) {
 
   const hasMore = insights.length > FEED_MIN_VISIBLE
   const visible = expanded ? insights : insights.slice(0, FEED_MIN_VISIBLE)
-  const hiddenCount = insights.length - FEED_MIN_VISIBLE
 
   return (
     <div>
-      <div style={{ background: "#151922", border: "1px solid #1e2438",
-        borderRadius: 12, overflow: "hidden",
-        boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
-        {visible.map((insight, i) => (
-          <MirrorFeedItem key={insight.signal || i} insight={insight} i={i} total={visible.length} />
-        ))}
+      <div style={{ position: "relative" }}>
+        <div style={{ background: "#151922", border: "1px solid #1e2438",
+          borderRadius: 12, overflow: "hidden",
+          boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
+          {visible.map((insight, i) => (
+            <MirrorFeedItem key={insight.signal || i} insight={insight} i={i} total={visible.length} />
+          ))}
+        </div>
+
+        {/* Gradient fade over last item with Show more pill */}
+        {hasMore && !expanded && (
+          <div
+            onClick={() => setExpanded(true)}
+            style={{
+              position: "absolute", bottom: 0, left: 0, right: 0,
+              height: 90,
+              background: "linear-gradient(to bottom, transparent, #0f1117)",
+              borderRadius: "0 0 12px 12px",
+              display: "flex", alignItems: "flex-end",
+              justifyContent: "center", paddingBottom: 14,
+              cursor: "pointer",
+            }}
+          >
+            <span style={{
+              fontSize: 12, fontWeight: 600, color: "#5b9cf6",
+              background: "rgba(15,17,23,0.85)",
+              border: "1px solid rgba(29,78,216,0.3)",
+              borderRadius: 20, padding: "5px 18px",
+            }}>
+              Show more
+            </span>
+          </div>
+        )}
       </div>
 
-      {hasMore && (
+      {/* Show less — simple link below when expanded */}
+      {expanded && hasMore && (
         <button
-          onClick={() => setExpanded(v => !v)}
+          onClick={() => setExpanded(false)}
           style={{
-            marginTop: 10, width: "100%", padding: "9px 0",
-            background: "none", border: "1px solid #1e2438",
-            borderRadius: 8, cursor: "pointer", fontSize: 12,
-            color: "#4a4865", transition: "all 0.15s",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            marginTop: 8, background: "none", border: "none",
+            cursor: "pointer", fontSize: 12, color: "#4a4865",
+            display: "block", width: "100%", textAlign: "center", padding: "6px 0",
           }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "#2e3450"; e.currentTarget.style.color = "#8b89aa" }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "#1e2438"; e.currentTarget.style.color = "#4a4865" }}
         >
-          <span style={{ display: "inline-block",
-            transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.2s", fontSize: 10 }}>▼</span>
-          {expanded ? "Show less" : `Show ${hiddenCount} more`}
+          Show less
         </button>
       )}
     </div>
