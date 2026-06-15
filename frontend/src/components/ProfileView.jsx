@@ -94,7 +94,52 @@ const FEED_TYPE_CONFIG = {
   pattern:          { color: "#f59e0b", label: "Consistent pattern", icon: "●" },
 }
 
+const FEED_MIN_VISIBLE = 3
+
+function MirrorFeedItem({ insight, i, total }) {
+  const cfg = FEED_TYPE_CONFIG[insight.type] || FEED_TYPE_CONFIG.pattern
+  return (
+    <RevealItem index={i}>
+    <div style={{
+      display: "flex", gap: 14, padding: "14px 18px",
+      borderBottom: i < total - 1 ? "1px solid #131827" : "none",
+      alignItems: "flex-start",
+    }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+        background: `${cfg.color}18`,
+        border: `1px solid ${cfg.color}30`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 14, color: cfg.color, fontWeight: 700, marginTop: 1,
+      }}>
+        {cfg.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color,
+          textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 5 }}>
+          {cfg.label}
+        </div>
+        <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.75 }}>
+          {insight.text}
+        </p>
+        {insight.tip && (
+          <p style={{
+            margin: "10px 0 0", fontSize: 12, color: "#6b6888", lineHeight: 1.65,
+            paddingTop: 10, borderTop: "1px solid #131827",
+          }}>
+            <span style={{ color: "#4a4865", fontWeight: 600 }}>— </span>
+            {insight.tip}
+          </p>
+        )}
+      </div>
+    </div>
+    </RevealItem>
+  )
+}
+
 function MirrorFeed({ insights }) {
+  const [expanded, setExpanded] = useState(false)
+
   if (!insights) return null
 
   if (!insights.length) {
@@ -106,50 +151,39 @@ function MirrorFeed({ insights }) {
     )
   }
 
+  const hasMore = insights.length > FEED_MIN_VISIBLE
+  const visible = expanded ? insights : insights.slice(0, FEED_MIN_VISIBLE)
+  const hiddenCount = insights.length - FEED_MIN_VISIBLE
+
   return (
-    <div style={{ background: "#151922", border: "1px solid #1e2438",
-      borderRadius: 12, overflow: "hidden",
-      boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
-      {insights.map((insight, i) => {
-        const cfg = FEED_TYPE_CONFIG[insight.type] || FEED_TYPE_CONFIG.pattern
-        return (
-          <RevealItem key={i} index={i}>
-          <div style={{
-            display: "flex", gap: 14, padding: "14px 18px",
-            borderBottom: i < insights.length - 1 ? "1px solid #131827" : "none",
-            alignItems: "flex-start",
-          }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-              background: `${cfg.color}18`,
-              border: `1px solid ${cfg.color}30`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 14, color: cfg.color, fontWeight: 700, marginTop: 1,
-            }}>
-              {cfg.icon}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color,
-                textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 5 }}>
-                {cfg.label}
-              </div>
-              <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.75 }}>
-                {insight.text}
-              </p>
-              {insight.tip && (
-                <p style={{
-                  margin: "10px 0 0", fontSize: 12, color: "#6b6888", lineHeight: 1.65,
-                  paddingTop: 10, borderTop: "1px solid #131827",
-                }}>
-                  <span style={{ color: "#4a4865", fontWeight: 600 }}>— </span>
-                  {insight.tip}
-                </p>
-              )}
-            </div>
-          </div>
-          </RevealItem>
-        )
-      })}
+    <div>
+      <div style={{ background: "#151922", border: "1px solid #1e2438",
+        borderRadius: 12, overflow: "hidden",
+        boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
+        {visible.map((insight, i) => (
+          <MirrorFeedItem key={insight.signal || i} insight={insight} i={i} total={visible.length} />
+        ))}
+      </div>
+
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          style={{
+            marginTop: 10, width: "100%", padding: "9px 0",
+            background: "none", border: "1px solid #1e2438",
+            borderRadius: 8, cursor: "pointer", fontSize: 12,
+            color: "#4a4865", transition: "all 0.15s",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "#2e3450"; e.currentTarget.style.color = "#8b89aa" }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "#1e2438"; e.currentTarget.style.color = "#4a4865" }}
+        >
+          <span style={{ display: "inline-block",
+            transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s", fontSize: 10 }}>▼</span>
+          {expanded ? "Show less" : `Show ${hiddenCount} more`}
+        </button>
+      )}
     </div>
   )
 }

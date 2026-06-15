@@ -64,16 +64,14 @@ class PersonalitySynthesizer:
 
         session_log = ""
         if sessions_data:
-            session_log = "\nSESSION LOG (reference by context type when writing the shape narrative):\n"
+            session_log = "\nSESSION LOG (the behavioral fingerprints are your PRIMARY source — use them, not just the numbers):\n"
             for i, s in enumerate(sessions_data[-10:], 1):
-                scores = ", ".join(f"{k}={v}" for k, v in s.get("dim_scores", {}).items())
                 notable = s.get("notable_pattern", "")
                 notable_str = f' | pattern: "{notable}"' if notable else ""
                 fingerprint = s.get("fingerprint", "")
-                fp_str = f'\n     behavioral summary: {fingerprint[:200]}…' if fingerprint else ""
+                fp_str = f'\n     [{s["context"]}] {fingerprint[:350]}' if fingerprint else ""
                 session_log += (
-                    f"  {i}. {s['context']} | {scores} "
-                    f"| fillers={s['filler_rate']}/100w | talk={s['talk_ratio_pct']}%"
+                    f"  {i}. {s['context']} | talk={s['talk_ratio_pct']}%"
                     f"{notable_str}{fp_str}\n"
                 )
 
@@ -85,13 +83,21 @@ class PersonalitySynthesizer:
 TASK: Write a personality portrait paragraph, 5 dimension scores with labels, and one shape narrative.
 
 PARAGRAPH RULES:
-1. 3–4 sentences maximum. Write as if describing this person to someone who knows them.
-2. NO raw numbers or percentages. No "57% of the time" or "211 WPM".
-   Only use numbers if they describe a striking contrast — and even then, phrase it qualitatively ("nearly double", "significantly slower").
-3. Focus on behavioural character: how they show up, what their tendencies are, what makes them distinct.
-4. Reference context contrasts only where the data actually supports them.
-5. Use "you" / "your" — address the person directly.
-6. Never write "seems to" or "appears to" — be direct about observed patterns.
+1. 3–4 sentences maximum. Write as if describing this person to someone who knows them well.
+2. NO raw numbers or percentages — phrase everything qualitatively.
+3. VOCABULARY: The portrait must go beyond talk dynamics. Draw from what the fingerprints actually reveal across these dimensions:
+   — THINKING STYLE: Do they reframe questions before answering? Take contrarian positions? Think out loud or present polished thoughts? Big-picture or detail-driven?
+   — ARGUMENT STYLE: Do they lead with logic, stories, analogies, personal experience, or principles? How do they structure a point?
+   — CONVERSATION NAVIGATION: Do they drive topics, shift tone, redirect, or follow? Who owns the direction of their conversations?
+   — HANDLING CHALLENGE: When pushed back on, do they get curious, defensive, or adaptive? Do they change position? What moves them?
+   — CLARITY & PRECISION: Do they commit to positions or hedge constantly? Do they use concrete examples or stay abstract?
+   — LISTENING & RESPONSE: Do they build on what others say, or pivot immediately to their own point? Do they ask probing questions?
+   — WARMTH & RELATIONAL STYLE: Humor, validation, emotional calibration — do they connect or transact?
+4. If talk ratio or dominance is already the most obvious thing, do NOT make it the centrepiece unless it is truly the most defining characteristic. If the fingerprints reveal more interesting things about thinking style, framing, or perspective — surface those instead.
+5. The portrait should make the person feel SEEN as an individual — not like a generic assessment report.
+6. Reference context contrasts only where the data actually supports them.
+7. Use "you" / "your" — address the person directly.
+8. Never write "seems to" or "appears to" — be direct about observed patterns.
 
 SHAPE NARRATIVE RULES (one paragraph shown below all 5 scores):
 1. 3–4 sentences. Synthesize what the COMBINATION of all 5 scores reveals — not a summary of each one individually.

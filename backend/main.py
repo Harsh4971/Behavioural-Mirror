@@ -287,7 +287,7 @@ def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
 def _get_or_synthesize_personality(user_id: str, session_count: int,
                                    profile_data: dict, dim_averages: dict,
                                    sessions_data: list = None) -> dict:
-    _SYNTHESIS_VERSION = 5  # bump when prompt changes to invalidate old cache
+    _SYNTHESIS_VERSION = 6  # bump when prompt changes to invalidate old cache
     cache_key = f"{user_id}:{session_count}:v{_SYNTHESIS_VERSION}"
 
     if cache_key in _personality_cache:
