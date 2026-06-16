@@ -74,21 +74,33 @@ export default function AuthView({ onAuth }) {
               setLoading(false)
               return
             }
-            const hash = new URL(callbackUrl).hash.substring(1)
-            const params = new URLSearchParams(hash)
-            const accessToken = params.get("access_token")
-            const refreshToken = params.get("refresh_token") || ""
-            if (!accessToken) {
-              setError("Could not retrieve session from Google.")
+            const parsed = new URL(callbackUrl)
+
+            // Implicit flow: tokens in hash
+            const hashParams = new URLSearchParams(parsed.hash.substring(1))
+            const accessToken = hashParams.get("access_token")
+            if (accessToken) {
+              const { data: s, error: se } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: hashParams.get("refresh_token") || "",
+              })
+              if (se) setError(se.message)
+              else onAuth(s.session)
               setLoading(false)
               return
             }
-            const { data: s, error: se } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            })
-            if (se) setError(se.message)
-            else onAuth(s.session)
+
+            // PKCE fallback: exchange authorization code for session
+            const code = parsed.searchParams.get("code")
+            if (code) {
+              const { data: s, error: se } = await supabase.auth.exchangeCodeForSession(code)
+              if (se) setError(se.message)
+              else onAuth(s.session)
+              setLoading(false)
+              return
+            }
+
+            setError("Could not retrieve session from Google.")
             setLoading(false)
           }
         )

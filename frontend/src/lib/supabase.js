@@ -4,6 +4,9 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   {
-    realtime: { transport: null }, // disable WebSocket — not used in extension context
+    auth: {
+      flowType: 'implicit', // chrome.identity.launchWebAuthFlow needs tokens in hash, not PKCE code
+    },
+    realtime: { transport: null },
   }
 )
