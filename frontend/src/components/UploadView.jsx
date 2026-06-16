@@ -86,6 +86,11 @@ export default function UploadView({ onResults, onActivate }) {
   const [error, setError] = useState("")
   const [progressStep, setProgressStep] = useState(null)
   const [serverWarm, setServerWarm] = useState(true)
+  const [usage, setUsage] = useState(null)
+
+  useEffect(() => {
+    api.get("/api/usage").then(r => setUsage(r.data)).catch(() => {})
+  }, [])
 
   const esRef = useRef(null)
   const pollRef = useRef(null)
@@ -118,6 +123,7 @@ export default function UploadView({ onResults, onActivate }) {
           es.close(); esRef.current = null
           sessionStorage.removeItem("pending_finalize_session")
           setStep("idle"); setFile(null)
+          api.get("/api/usage").then(r => setUsage(r.data)).catch(() => {})
           onResults(msg.data)
         } else if (msg.event === "error") {
           es.close(); esRef.current = null
@@ -353,6 +359,35 @@ export default function UploadView({ onResults, onActivate }) {
         </div>
       )}
 
+      {usage && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between",
+            alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, color: "#4a4865" }}>
+              Sessions this month
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600,
+              color: usage.remaining === 0 ? "#f87171" : usage.remaining <= 3 ? "#fb923c" : "#4a4865" }}>
+              {usage.used} / {usage.limit}
+            </span>
+          </div>
+          <div style={{ height: 3, background: "#1e2438", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 2,
+              width: `${Math.min((usage.used / usage.limit) * 100, 100)}%`,
+              background: usage.remaining === 0 ? "#f87171"
+                : usage.remaining <= 3 ? "#fb923c" : G,
+              transition: "width 0.5s ease",
+            }} />
+          </div>
+          {usage.remaining === 0 && (
+            <p style={{ fontSize: 12, color: "#f87171", margin: "6px 0 0" }}>
+              Limit reached — resets {usage.resets_on}
+            </p>
+          )}
+        </div>
+      )}
+
       {error && (
         <div style={{ background: "rgba(248,113,113,0.08)",
           border: "1px solid rgba(248,113,113,0.25)",
@@ -362,7 +397,7 @@ export default function UploadView({ onResults, onActivate }) {
         </div>
       )}
 
-      <button onClick={handlePrepare} disabled={!hasFile}
+      <button onClick={handlePrepare} disabled={!hasFile || usage?.remaining === 0}
         className={hasFile ? "btn-grad" : ""}
         style={{ width: "100%", padding: "15px 24px",
           background: hasFile ? G : "#151922",

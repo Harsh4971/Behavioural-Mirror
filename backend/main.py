@@ -497,6 +497,29 @@ def privacy_policy():
 </html>"""
 
 
+# ── Usage ─────────────────────────────────────────────────────────
+
+@app.get("/api/usage")
+async def get_usage(user_id: str = Depends(get_current_user)):
+    from datetime import timedelta
+    limit = 15
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    res = supabase_admin.table("sessions") \
+        .select("id", count="exact") \
+        .eq("user_id", user_id) \
+        .gte("created_at", month_start.isoformat()) \
+        .execute()
+    used = res.count or 0
+    return {
+        "used": used,
+        "limit": limit,
+        "remaining": max(0, limit - used),
+        "resets_on": next_month.strftime("%b 1"),
+    }
+
+
 # ── SSE Step 1: Start prepare job ────────────────────────────────
 
 @app.post("/api/prepare/start")
@@ -507,6 +530,22 @@ async def start_prepare_session(
     user_id: str = Depends(get_current_user)
 ):
     _cleanup_stale_cache()
+
+    # ── Monthly session cap ───────────────────────────────────────────
+    _SESSION_MONTHLY_LIMIT = 15
+    _month_start = datetime.now(timezone.utc).replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+    _usage_res = supabase_admin.table("sessions") \
+        .select("id", count="exact") \
+        .eq("user_id", user_id) \
+        .gte("created_at", _month_start) \
+        .execute()
+    if (_usage_res.count or 0) >= _SESSION_MONTHLY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You've used all {_SESSION_MONTHLY_LIMIT} sessions for this month. Your limit resets on the 1st."
+        )
 
     session_id = str(uuid.uuid4())
     audio_path = f"{UPLOAD_DIR}/{session_id}.wav"

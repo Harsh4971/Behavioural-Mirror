@@ -14,7 +14,6 @@ import MeetStatusBanner from "./components/MeetStatusBanner"
 export default function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [enrollState, setEnrollState] = useState("checking")
   const [onboardingDone, setOnboardingDone] = useState(
     () => !!localStorage.getItem("bm_onboarding_v1")
   )
@@ -77,18 +76,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
-    if (!session) return
-    api.get("/api/voiceprint/status")
-      .then(res => setEnrollState(res.data.enrolled ? "done" : "needed"))
-      .catch(() => {
-        // Any error (network, 401, 500) — don't block access with enrollment.
-        // Only an explicit enrolled:false response should trigger the flow.
-        setEnrollState("done")
-      })
-  }, [session])
-
-  if (authLoading || (session && enrollState === "checking")) return (
+  if (authLoading) return (
     <div style={{ textAlign: "center", padding: 80, color: "#2e3464" }}>
       Loading…
     </div>
@@ -98,35 +86,6 @@ export default function App() {
 
   if (!onboardingDone) return (
     <OnboardingView onDone={() => setOnboardingDone(true)} />
-  )
-
-  if (enrollState === "needed") return (
-    <div style={{ maxWidth: 480, margin: "0 auto", padding: 24 }}>
-      <div style={{ marginBottom: 28, display: "flex", alignItems: "center", gap: 10 }}>
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-          <defs>
-            <linearGradient id="enr-g" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#1d4ed8"/><stop offset="1" stopColor="#0891b2"/>
-            </linearGradient>
-          </defs>
-          <rect x="2"  y="12" width="4" height="4"  rx="2" fill="url(#enr-g)" opacity=".4"/>
-          <rect x="8"  y="8"  width="4" height="8"  rx="2" fill="url(#enr-g)" opacity=".65"/>
-          <rect x="14" y="4"  width="4" height="12" rx="2" fill="url(#enr-g)"/>
-          <rect x="20" y="8"  width="4" height="8"  rx="2" fill="url(#enr-g)" opacity=".65"/>
-          <rect x="26" y="12" width="4" height="4"  rx="2" fill="url(#enr-g)" opacity=".4"/>
-          <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" strokeWidth="1"/>
-          <rect x="2"  y="18" width="4" height="4"  rx="2" fill="url(#enr-g)" opacity=".18"/>
-          <rect x="8"  y="18" width="4" height="8"  rx="2" fill="url(#enr-g)" opacity=".3"/>
-          <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#enr-g)" opacity=".38"/>
-          <rect x="20" y="18" width="4" height="8"  rx="2" fill="url(#enr-g)" opacity=".3"/>
-          <rect x="26" y="18" width="4" height="4"  rx="2" fill="url(#enr-g)" opacity=".18"/>
-        </svg>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.3px", color: "#f0eeff" }}>
-          mirror<span style={{ color: "#1d4ed8" }}>.</span>
-        </h1>
-      </div>
-      <EnrollView onEnrolled={() => setEnrollState("done")} onSkip={() => setEnrollState("done")} />
-    </div>
   )
 
   return (
@@ -208,16 +167,11 @@ export default function App() {
                   background: "#151922", border: "1px solid #1e2438", borderRadius: 10,
                   boxShadow: "0 8px 40px rgba(0,0,0,0.7)", zIndex: 20,
                   minWidth: 200, overflow: "hidden" }}>
-                  <div style={{ padding: "8px 14px 6px", fontSize: 11,
-                    color: "#4a4d6a", borderBottom: "1px solid #1e2438",
-                    textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    Voice — {enrollState === "done" ? "enrolled" : "not enrolled"}
-                  </div>
                   {[
                     { label: "How it works",
                       onClick: () => { setView("howItWorks"); setShowAccountMenu(false) },
                       color: "#f0eeff" },
-                    { label: enrollState === "done" ? "Retrain your voice" : "Enroll your voice",
+                    { label: "Train your voice",
                       onClick: () => { setShowReenroll(true); setShowAccountMenu(false) },
                       color: "#f0eeff" },
                     { label: "Sign out",
@@ -290,7 +244,7 @@ export default function App() {
                   fontSize: 20, color: "#4a4d6a", lineHeight: 1 }}>×</button>
             </div>
             <EnrollView
-              onEnrolled={() => { setShowReenroll(false); setEnrollState("done") }}
+              onEnrolled={() => setShowReenroll(false)}
               onSkip={() => setShowReenroll(false)}
             />
           </div>
