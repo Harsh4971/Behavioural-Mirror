@@ -142,7 +142,7 @@ export default function MeetStatusBanner({ onViewHistory }) {
   }
 
   function handleStartRecording() {
-    if (!localStorage.getItem("mirror_consent_v2")) {
+    if (!localStorage.getItem("mirror_consent_v3")) {
       setShowConsent(true)
     } else {
       handleStartRecordingConfirmed()
@@ -190,7 +190,7 @@ export default function MeetStatusBanner({ onViewHistory }) {
             </p>
             <button
               onClick={() => {
-                localStorage.setItem("mirror_consent_v2", "1")
+                localStorage.setItem("mirror_consent_v3", "1")
                 setShowConsent(false)
                 handleStartRecordingConfirmed()
               }}

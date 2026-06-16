@@ -190,20 +190,12 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null, 
   await chrome.offscreen.closeDocument().catch(() => {});
 
   let streamId = providedStreamId;
-  if (!streamId) {
-    const { pendingStreamId, pendingStreamTabId } = await chrome.storage.session.get([
-      'pendingStreamId', 'pendingStreamTabId',
-    ]);
-    if (pendingStreamId && pendingStreamTabId === tabId) {
-      streamId = pendingStreamId;
-      await chrome.storage.session.remove(['pendingStreamId', 'pendingStreamTabId']);
-    }
-  }
 
   if (!streamId) {
-    // No cached stream ID — try to get one on demand.
-    // With 'tabCapture' permission this works from the SW without a user gesture.
-    console.log('[mirror] No cached stream ID — attempting on-demand getMediaStreamId for tab', tabId);
+    // Always get a fresh stream ID on-demand — pre-fetched IDs expire in ~10 s.
+    // tabCapture permission + host_permissions for meet.google.com allows this
+    // from the service worker without an active user gesture.
+    console.log('[mirror] Getting fresh stream ID on-demand for tab', tabId);
     try {
       streamId = await new Promise((resolve, reject) => {
         chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
@@ -212,21 +204,39 @@ async function handleStart(tabId, mode = 'tabcapture', providedStreamId = null, 
         });
       });
       console.log('[mirror] On-demand stream ID acquired for tab', tabId);
+      // Discard any stale pre-fetched ID
+      chrome.storage.session.remove(['pendingStreamId', 'pendingStreamTabId', 'pendingStreamError']).catch(() => {});
     } catch (e) {
-      console.error('[mirror] On-demand getMediaStreamId FAILED:', e.message);
-      return { error: 'Unable to capture tab audio. Open the Mirror side panel on the Meet tab and try again.' };
+      // On-demand failed — try the pre-fetched one as last resort
+      console.warn('[mirror] On-demand getMediaStreamId failed:', e.message, '— trying pre-fetched ID');
+      const { pendingStreamId, pendingStreamTabId } = await chrome.storage.session.get([
+        'pendingStreamId', 'pendingStreamTabId',
+      ]);
+      if (pendingStreamId && pendingStreamTabId === tabId) {
+        streamId = pendingStreamId;
+        await chrome.storage.session.remove(['pendingStreamId', 'pendingStreamTabId']);
+        console.log('[mirror] Using pre-fetched stream ID as fallback');
+      } else {
+        console.error('[mirror] No usable stream ID — cannot start recording');
+        return { error: 'Tab capture failed: ' + e.message };
+      }
     }
   }
 
   // Create fresh offscreen doc
   await ensureOffscreen();
 
-  // Tell offscreen doc to start recording with this stream
-  await chrome.runtime.sendMessage({
+  // Tell offscreen doc to start recording and check it actually succeeded
+  const offscreenResp = await chrome.runtime.sendMessage({
     target: 'offscreen',
     action: 'start_recording',
     streamId,
-  });
+  }).catch(e => ({ error: e.message }));
+
+  if (offscreenResp?.error) {
+    console.error('[mirror] Offscreen startRecording failed:', offscreenResp.error);
+    return { error: offscreenResp.error };
+  }
 
   recordingActive = true;
   recordingTabId = tabId;
