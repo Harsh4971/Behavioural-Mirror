@@ -11,6 +11,7 @@ export default function MeetStatusBanner() {
   const [recordError, setRecordError] = useState(null)
   const [webrtcReady, setWebrtcReady] = useState(false)
   const [secondsElapsed, setSecondsElapsed] = useState(0)
+  const [showConsent, setShowConsent] = useState(false)
   const timerRef = useRef(null)
   const dismissTimers = useRef([])
 
@@ -123,7 +124,7 @@ export default function MeetStatusBanner() {
     }
   }, [])
 
-  function handleStartRecording() {
+  function handleStartRecordingConfirmed() {
     setRecordError(null)
     if (!meetTabId) { setRecordError('No Meet tab found'); return }
 
@@ -168,6 +169,14 @@ export default function MeetStatusBanner() {
     })
   }
 
+  function handleStartRecording() {
+    if (!localStorage.getItem("mirror_consent_v1")) {
+      setShowConsent(true)
+    } else {
+      handleStartRecordingConfirmed()
+    }
+  }
+
   function handleStopRecording() {
     chrome.runtime.sendMessage({ action: "stop_recording" })
   }
@@ -181,6 +190,59 @@ export default function MeetStatusBanner() {
 
   return (
     <div style={{ marginBottom: 20 }}>
+
+      {/* One-time recording consent modal */}
+      {showConsent && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(0,0,0,0.75)", backdropFilter: "blur(2px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24,
+        }}>
+          <div style={{
+            background: "#151922", border: "1px solid #1e2438",
+            borderRadius: 14, padding: "24px 22px", maxWidth: 340, width: "100%",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
+          }}>
+            <div style={{ fontSize: 22, marginBottom: 12, textAlign: "center" }}>🔒</div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#f0eeff",
+              margin: "0 0 10px", textAlign: "center" }}>
+              Before you record
+            </h3>
+            <p style={{ fontSize: 13, color: "#8b89aa", lineHeight: 1.7,
+              margin: "0 0 20px", textAlign: "center" }}>
+              You are responsible for ensuring all meeting participants are aware
+              this conversation is being recorded. Please obtain consent from
+              everyone in the call before starting.
+            </p>
+            <button
+              onClick={() => {
+                localStorage.setItem("mirror_consent_v1", "1")
+                setShowConsent(false)
+                handleStartRecordingConfirmed()
+              }}
+              style={{
+                width: "100%", padding: "12px 0",
+                background: "linear-gradient(135deg, #1d4ed8, #0891b2)",
+                color: "white", border: "none", borderRadius: 8,
+                fontSize: 14, fontWeight: 600, cursor: "pointer",
+                marginBottom: 10,
+              }}
+            >
+              I understand — Start Recording
+            </button>
+            <button
+              onClick={() => setShowConsent(false)}
+              style={{
+                width: "100%", padding: "10px 0", background: "none",
+                border: "none", fontSize: 13, color: "#4a4865", cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Meet recording controls */}
       {onMeet && (
