@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How it works — mirror.</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='0' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%231d4ed8'/%3E%3Cstop offset='1' stop-color='%230891b2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='12' width='4' height='4' rx='2' fill='url(%23g)' opacity='.4'/%3E%3Crect x='8' y='8' width='4' height='8' rx='2' fill='url(%23g)' opacity='.65'/%3E%3Crect x='14' y='4' width='4' height='12' rx='2' fill='url(%23g)'/%3E%3Crect x='20' y='8' width='4' height='8' rx='2' fill='url(%23g)' opacity='.65'/%3E%3Crect x='26' y='12' width='4' height='4' rx='2' fill='url(%23g)' opacity='.4'/%3E%3Cline x1='0' y1='17.5' x2='32' y2='17.5' stroke='%231e2438' stroke-width='1'/%3E%3Crect x='2' y='18' width='4' height='4' rx='2' fill='url(%23g)' opacity='.18'/%3E%3Crect x='8' y='18' width='4' height='8' rx='2' fill='url(%23g)' opacity='.3'/%3E%3Crect x='14' y='18' width='4' height='12' rx='2' fill='url(%23g)' opacity='.38'/%3E%3Crect x='20' y='18' width='4' height='8' rx='2' fill='url(%23g)' opacity='.3'/%3E%3Crect x='26' y='18' width='4' height='4' rx='2' fill='url(%23g)' opacity='.18'/%3E%3C/svg%3E">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f1117;
+      color: #c4c2d8;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      padding: 48px 24px 80px;
+      background-image: radial-gradient(rgba(255,255,255,0.028) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+
+    /* Back link */
+    .back { display: inline-flex; align-items: center; gap: 5px; background: none; border: none;
+      cursor: pointer; color: #4a4865; font-size: 13px; padding: 0; margin-bottom: 40px;
+      text-decoration: none; transition: color 0.15s; }
+    .back:hover { color: #8b89aa; }
+
+    /* Reveal animations */
+    .reveal {
+      opacity: 0; transform: translateY(44px);
+      transition: opacity 0.65s cubic-bezier(0.16,1,0.3,1), transform 0.65s cubic-bezier(0.16,1,0.3,1);
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+    .reveal-item { opacity: 0; transition: opacity 0.4s ease; }
+    .reveal.visible .reveal-item { opacity: 1; }
+    .reveal.visible .reveal-item:nth-child(1) { transition-delay: 0ms; }
+    .reveal.visible .reveal-item:nth-child(2) { transition-delay: 70ms; }
+    .reveal.visible .reveal-item:nth-child(3) { transition-delay: 140ms; }
+    .reveal.visible .reveal-item:nth-child(4) { transition-delay: 210ms; }
+    .reveal.visible .reveal-item:nth-child(5) { transition-delay: 280ms; }
+    .reveal.visible .reveal-item:nth-child(6) { transition-delay: 350ms; }
+    .reveal.visible .reveal-item:nth-child(7) { transition-delay: 420ms; }
+    .reveal.visible .reveal-item:nth-child(8) { transition-delay: 490ms; }
+    .reveal.visible .reveal-item:nth-child(9) { transition-delay: 560ms; }
+
+    /* Section headers */
+    .section { margin-bottom: 64px; }
+    .section-label {
+      font-size: 11px; font-weight: 700; color: #5b9cf6;
+      text-transform: uppercase; letter-spacing: 1.2px;
+      margin-bottom: 10px; text-align: center;
+    }
+    .section-title {
+      font-size: 24px; font-weight: 800; color: #f0eeff;
+      margin: 0 0 10px; letter-spacing: -0.5px; text-align: center; line-height: 1.25;
+    }
+    .section-sub {
+      font-size: 14px; color: #6b6888; text-align: center;
+      margin: 0 0 32px; line-height: 1.75; max-width: 520px; margin-inline: auto;
+    }
+
+    /* Steps */
+    .step-row { display: flex; gap: 20px; position: relative; padding-bottom: 34px; }
+    .step-row:last-child { padding-bottom: 0; }
+    .step-connector {
+      position: absolute; left: 17px; top: 42px; width: 2px; height: calc(100% - 14px);
+      background: linear-gradient(to bottom, rgba(29,78,216,0.25), transparent);
+    }
+    .step-circle {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(29,78,216,0.1); border: 1.5px solid rgba(29,78,216,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: #5b9cf6; z-index: 1;
+    }
+    .step-body { padding-top: 5px; }
+    .step-title { font-size: 14px; font-weight: 700; color: #f0eeff; margin-bottom: 6px; }
+    .step-desc { font-size: 13px; color: #6b6888; line-height: 1.7; }
+
+    /* Features grid */
+    .features-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .feat-card { background: #151922; border: 1px solid #1e2438; border-radius: 14px; padding: 20px 18px; }
+    .feat-icon {
+      width: 42px; height: 42px; border-radius: 11px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; margin-bottom: 14px;
+    }
+    .feat-title { font-size: 13px; font-weight: 700; color: #f0eeff; margin-bottom: 7px; line-height: 1.35; }
+    .feat-body { font-size: 12px; color: #6b6888; line-height: 1.65; }
+
+    /* Context types */
+    .ctx-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 11px 16px; background: #151922; border: 1px solid #1e2438;
+      border-radius: 10px; gap: 12px; margin-bottom: 6px;
+    }
+    .ctx-label { font-size: 13px; font-weight: 600; color: #c4c2d8; flex-shrink: 0; }
+    .ctx-desc { font-size: 12px; color: #4a4865; text-align: right; }
+
+    /* Privacy block */
+    .privacy-block {
+      background: #151922; border: 1px solid #1e2438;
+      border-radius: 14px; padding: 28px 24px; text-align: center; margin-bottom: 64px;
+    }
+    .privacy-block h3 { font-size: 17px; font-weight: 700; color: #f0eeff; margin: 0 0 10px; }
+    .privacy-block p { font-size: 13px; color: #6b6888; line-height: 1.8; margin: 0 auto; max-width: 420px; }
+
+    a { color: #5b9cf6; }
+
+    @keyframes blobDrift1 {
+      0%   { transform: translate(0, 0) scale(1); }
+      30%  { transform: translate(40px, -30px) scale(1.06); }
+      65%  { transform: translate(-20px, 25px) scale(0.96); }
+      100% { transform: translate(25px, 15px) scale(1.03); }
+    }
+    @keyframes blobDrift2 {
+      0%   { transform: translate(0, 0) scale(1); }
+      30%  { transform: translate(-35px, 40px) scale(1.04); }
+      65%  { transform: translate(25px, -20px) scale(0.97); }
+      100% { transform: translate(-15px, 30px) scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+
+<div style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0;">
+  <div style="position:absolute;top:-15%;right:-8%;width:650px;height:650px;border-radius:50%;background:radial-gradient(circle,rgba(29,78,216,0.09) 0%,transparent 68%);filter:blur(1px);animation:blobDrift1 22s ease-in-out infinite;"></div>
+  <div style="position:absolute;bottom:-12%;left:-6%;width:550px;height:550px;border-radius:50%;background:radial-gradient(circle,rgba(8,145,178,0.07) 0%,transparent 68%);filter:blur(1px);animation:blobDrift2 28s ease-in-out infinite;"></div>
+</div>
+
+<div class="wrap" style="position:relative;z-index:1;">
+
+  <a class="back" href="/">← Back</a>
+
+  <!-- Hero -->
+  <div class="reveal section" style="text-align:center;margin-bottom:72px;">
+    <div style="display:flex;justify-content:center;margin-bottom:20px;">
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="52" y2="0" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/>
+          </linearGradient>
+        </defs>
+        <rect x="2"  y="20" width="6"  height="6"  rx="3" fill="url(#g)" opacity=".35"/>
+        <rect x="11" y="13" width="6"  height="13" rx="3" fill="url(#g)" opacity=".6"/>
+        <rect x="20" y="6"  width="8"  height="20" rx="4" fill="url(#g)"/>
+        <rect x="31" y="13" width="6"  height="13" rx="3" fill="url(#g)" opacity=".6"/>
+        <rect x="40" y="20" width="6"  height="6"  rx="3" fill="url(#g)" opacity=".35"/>
+        <line x1="0" y1="28" x2="52" y2="28" stroke="#1e2438" stroke-width="1.25"/>
+        <rect x="2"  y="29" width="6"  height="6"  rx="3" fill="url(#g)" opacity=".15"/>
+        <rect x="11" y="29" width="6"  height="13" rx="3" fill="url(#g)" opacity=".27"/>
+        <rect x="20" y="29" width="8"  height="20" rx="4" fill="url(#g)" opacity=".33"/>
+        <rect x="31" y="29" width="6"  height="13" rx="3" fill="url(#g)" opacity=".27"/>
+        <rect x="40" y="29" width="6"  height="6"  rx="3" fill="url(#g)" opacity=".15"/>
+      </svg>
+    </div>
+    <h1 style="font-size:30px;font-weight:800;margin:0 0 6px;letter-spacing:-0.7px;line-height:1.2;color:#f0eeff;">
+      Your conversations,
+    </h1>
+    <h1 style="font-size:30px;font-weight:800;margin:0 0 20px;letter-spacing:-0.7px;line-height:1.2;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">
+      reflected back.
+    </h1>
+    <p style="font-size:14px;color:#6b6888;line-height:1.85;max-width:460px;margin:0 auto;">
+      Most people go through hundreds of conversations without ever seeing their own patterns.
+      mirror changes that — not by telling you what to say, but by showing you how you actually show up.
+    </p>
+  </div>
+
+  <!-- The Problem -->
+  <div class="reveal section">
+    <div class="section-label">The Problem</div>
+    <div class="section-title">You can't see yourself clearly in the moment.</div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <p style="margin:0;font-size:14px;color:#8b89aa;line-height:1.85;text-align:center;max-width:540px;margin-inline:auto;">
+        In every conversation you're focused on what to say next. Nobody tells you that you interrupted four times, spoke for 70% of the conversation, or always go quiet when you're challenged.
+      </p>
+      <p style="margin:0;font-size:14px;color:#8b89aa;line-height:1.85;text-align:center;max-width:540px;margin-inline:auto;">
+        <span style="color:#c4c2d8;font-weight:600;">Good coaches cost hundreds per hour.</span> Therapy takes years. Most feedback from the people around you is filtered through politeness or filtered out entirely.
+      </p>
+      <p style="margin:0;font-size:14px;color:#8b89aa;line-height:1.85;text-align:center;max-width:540px;margin-inline:auto;">
+        <span style="color:#c4c2d8;font-weight:600;">That's why mirror exists.</span> Upload a recording and we show you exactly what's happening — not what you think is happening.
+      </p>
+    </div>
+  </div>
+
+  <!-- How It Works -->
+  <div class="reveal section">
+    <div class="section-label">How It Works</div>
+    <div class="section-title">It gets smarter with every session.</div>
+    <div style="display:flex;flex-direction:column;max-width:520px;margin:0 auto;">
+      <div class="step-row">
+        <div class="step-connector"></div>
+        <div class="step-circle">1</div>
+        <div class="step-body">
+          <div class="step-title">Upload a recording</div>
+          <div class="step-desc">Any conversation — a meeting, a call, a catch-up. 2 to 20 minutes. Hindi or English. What you talked about doesn't matter. How you showed up does.</div>
+        </div>
+      </div>
+      <div class="step-row">
+        <div class="step-connector"></div>
+        <div class="step-circle">2</div>
+        <div class="step-body">
+          <div class="step-title">AI reads what was actually said</div>
+          <div class="step-desc">Not just numbers — the actual conversation. We find what you missed, what you repeated, how you listened, and where you lost the thread.</div>
+        </div>
+      </div>
+      <div class="step-row">
+        <div class="step-circle">3</div>
+        <div class="step-body">
+          <div class="step-title">Your profile builds over time</div>
+          <div class="step-desc">One session gives immediate feedback. Three sessions reveals patterns. Ten sessions and the mirror knows your behavioral tendencies better than most people who know you.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Features Grid -->
+  <div class="reveal section">
+    <div class="section-label">What You Get</div>
+    <div class="section-title">Everything the mirror sees.</div>
+    <div class="section-sub">Each session adds signal. Here's what we track and what it builds into.</div>
+    <div class="features-grid">
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(91,156,246,0.07);border:1px solid rgba(91,156,246,0.16);">🎤</div>
+        <div class="feat-title">Real Conversation Analysis</div>
+        <div class="feat-body">We read what was actually said, not just extracted numbers. The AI identifies missed questions, interrupted thoughts, and moments you talked past each other.</div>
+      </div>
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(52,211,153,0.07);border:1px solid rgba(52,211,153,0.16);">🔄</div>
+        <div class="feat-title">Mirror Feed</div>
+        <div class="feat-body">Patterns that only emerge across multiple sessions. After a few conversations, the mirror starts noticing what you consistently do — and don't do.</div>
+      </div>
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.16);">🎯</div>
+        <div class="feat-title">Context-Aware Insights</div>
+        <div class="feat-body">An interview is not a casual chat. We detect the type of conversation automatically and calibrate what good looks like for that specific setting.</div>
+      </div>
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(129,140,248,0.07);border:1px solid rgba(129,140,248,0.16);">📊</div>
+        <div class="feat-title">Your Behavioral Shape</div>
+        <div class="feat-body">Five dimensions tracked across all your sessions — Confidence, Assertiveness, Listening Quality, Composure, and Clarity — shown as a radar you can watch shift.</div>
+      </div>
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(251,146,60,0.07);border:1px solid rgba(251,146,60,0.16);">🎙️</div>
+        <div class="feat-title">Voice Recognition</div>
+        <div class="feat-body">Enroll your voice once. We identify which speaker is you across all future sessions automatically — no manual tagging needed.</div>
+      </div>
+      <div class="feat-card reveal-item">
+        <div class="feat-icon" style="background:rgba(91,156,246,0.07);border:1px solid rgba(91,156,246,0.16);">🔒</div>
+        <div class="feat-title">Privacy by Design</div>
+        <div class="feat-body">Your audio is processed and discarded. Only your behavioral patterns are kept — never your actual words or recordings.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Types -->
+  <div class="reveal section">
+    <div class="section-label">Context Types</div>
+    <div class="section-title">Every setting is different.</div>
+    <div class="section-sub">We automatically detect what kind of conversation you had and adjust the feedback. The more types you record in, the fuller the picture.</div>
+    <div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Interview &amp; Review · High Stakes</span><span class="ctx-desc">Job interviews, performance reviews, presentations</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Conflict &amp; Friction</span><span class="ctx-desc">Disagreements, pushback, difficult conversations</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Collaborative</span><span class="ctx-desc">Team meetings, brainstorming, joint problem-solving</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Persuading &amp; Pitching</span><span class="ctx-desc">Sales calls, pitches, convincing others</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Negotiation</span><span class="ctx-desc">Deals, salary discussions, competing interests</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Coaching &amp; Feedback</span><span class="ctx-desc">Mentoring, giving criticism, guiding others</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Supportive Listening</span><span class="ctx-desc">Emotional support, being there for someone</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Deep Personal</span><span class="ctx-desc">Vulnerable, emotionally open conversations</span></div>
+      <div class="ctx-row reveal-item"><span class="ctx-label">Casual &amp; Low-Stakes</span><span class="ctx-desc">Everyday chat, catching up, informal exchanges</span></div>
+    </div>
+  </div>
+
+  <!-- Privacy -->
+  <div class="reveal privacy-block">
+    <div style="font-size:32px;margin-bottom:14px;">🔒</div>
+    <h3>Privacy by design</h3>
+    <p>Your audio is processed and immediately discarded. Transcripts are analyzed and never stored. The only thing we keep is a behavioral summary — never your actual words.</p>
+  </div>
+
+</div>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

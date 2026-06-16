@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mirror. — Know how you communicate</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='32' y2='0' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%231d4ed8'/%3E%3Cstop offset='1' stop-color='%230891b2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='12' width='4' height='4' rx='2' fill='url(%23g)' opacity='.4'/%3E%3Crect x='8' y='8' width='4' height='8' rx='2' fill='url(%23g)' opacity='.65'/%3E%3Crect x='14' y='4' width='4' height='12' rx='2' fill='url(%23g)'/%3E%3Crect x='20' y='8' width='4' height='8' rx='2' fill='url(%23g)' opacity='.65'/%3E%3Crect x='26' y='12' width='4' height='4' rx='2' fill='url(%23g)' opacity='.4'/%3E%3Cline x1='0' y1='17.5' x2='32' y2='17.5' stroke='%231e2438' stroke-width='1'/%3E%3Crect x='2' y='18' width='4' height='4' rx='2' fill='url(%23g)' opacity='.18'/%3E%3Crect x='8' y='18' width='4' height='8' rx='2' fill='url(%23g)' opacity='.3'/%3E%3Crect x='14' y='18' width='4' height='12' rx='2' fill='url(%23g)' opacity='.38'/%3E%3Crect x='20' y='18' width='4' height='8' rx='2' fill='url(%23g)' opacity='.3'/%3E%3Crect x='26' y='18' width='4' height='4' rx='2' fill='url(%23g)' opacity='.18'/%3E%3C/svg%3E">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f1117;
+      color: #c4c2d8;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      background-image: radial-gradient(rgba(255,255,255,0.028) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    .wrap { max-width: 560px; width: 100%; text-align: center; }
+    .logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 48px; }
+    .logo h1 { font-size: 26px; font-weight: 700; color: #f0eeff; letter-spacing: -0.4px; }
+    .logo span { color: #1d4ed8; }
+    .headline {
+      font-size: 36px; font-weight: 700; color: #f0eeff;
+      letter-spacing: -0.6px; line-height: 1.2; margin-bottom: 18px;
+    }
+    .sub {
+      font-size: 16px; color: #6b6888; line-height: 1.75; margin-bottom: 40px;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(29,78,216,0.08); border: 1px solid rgba(29,78,216,0.2);
+      border-radius: 20px; padding: 6px 16px; font-size: 13px; color: #a5b4fc;
+      margin-bottom: 32px;
+    }
+    .cta {
+      display: inline-block;
+      background: linear-gradient(135deg, #1d4ed8, #0891b2);
+      color: white; text-decoration: none;
+      border-radius: 10px; padding: 14px 32px;
+      font-size: 15px; font-weight: 600;
+      box-shadow: 0 0 32px rgba(29,78,216,0.25);
+      transition: opacity 0.15s;
+    }
+    .cta:hover { opacity: 0.88; }
+    .features {
+      display: flex; flex-direction: column; gap: 12px;
+      margin: 48px 0; text-align: left;
+    }
+    .feature {
+      display: flex; gap: 14px; padding: 14px 16px;
+      background: rgba(13,15,20,0.6); border: 1px solid #1e2438; border-radius: 10px;
+    }
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+      background: linear-gradient(135deg, #1d4ed8, #0891b2); margin-top: 6px;
+    }
+    .feature-title { font-size: 13px; font-weight: 600; color: #f0eeff; margin-bottom: 3px; }
+    .feature-body { font-size: 13px; color: #6b6888; line-height: 1.6; }
+    @keyframes blobDrift1 {
+      0%   { transform: translate(0, 0) scale(1); }
+      30%  { transform: translate(40px, -30px) scale(1.06); }
+      65%  { transform: translate(-20px, 25px) scale(0.96); }
+      100% { transform: translate(25px, 15px) scale(1.03); }
+    }
+    @keyframes blobDrift2 {
+      0%   { transform: translate(0, 0) scale(1); }
+      30%  { transform: translate(-35px, 40px) scale(1.04); }
+      65%  { transform: translate(25px, -20px) scale(0.97); }
+      100% { transform: translate(-15px, 30px) scale(1.05); }
+    }
+    .secondary-cta {
+      display: inline-block; margin-top: 14px;
+      color: #4a4865; text-decoration: none; font-size: 14px;
+      transition: color 0.15s;
+    }
+    .secondary-cta:hover { color: #8b89aa; }
+    .footer {
+      margin-top: 48px; padding-top: 24px; border-top: 1px solid #1e2438;
+      font-size: 13px; color: #3a3a52;
+    }
+    .footer a { color: #4a4865; text-decoration: none; }
+    .footer a:hover { color: #8b89aa; }
+  </style>
+</head>
+<body>
+
+<div style="position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0;">
+  <div style="position:absolute;top:-15%;right:-8%;width:650px;height:650px;border-radius:50%;background:radial-gradient(circle,rgba(29,78,216,0.09) 0%,transparent 68%);filter:blur(1px);animation:blobDrift1 22s ease-in-out infinite;"></div>
+  <div style="position:absolute;bottom:-12%;left:-6%;width:550px;height:550px;border-radius:50%;background:radial-gradient(circle,rgba(8,145,178,0.07) 0%,transparent 68%);filter:blur(1px);animation:blobDrift2 28s ease-in-out infinite;"></div>
+</div>
+
+<div class="wrap" style="position:relative;z-index:1;">
+
+  <div class="logo">
+    <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/>
+        </linearGradient>
+      </defs>
+      <rect x="2"  y="12" width="4" height="4"  rx="2" fill="url(#g)" opacity=".4"/>
+      <rect x="8"  y="8"  width="4" height="8"  rx="2" fill="url(#g)" opacity=".65"/>
+      <rect x="14" y="4"  width="4" height="12" rx="2" fill="url(#g)"/>
+      <rect x="20" y="8"  width="4" height="8"  rx="2" fill="url(#g)" opacity=".65"/>
+      <rect x="26" y="12" width="4" height="4"  rx="2" fill="url(#g)" opacity=".4"/>
+      <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+      <rect x="2"  y="18" width="4" height="4"  rx="2" fill="url(#g)" opacity=".18"/>
+      <rect x="8"  y="18" width="4" height="8"  rx="2" fill="url(#g)" opacity=".3"/>
+      <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#g)" opacity=".38"/>
+      <rect x="20" y="18" width="4" height="8"  rx="2" fill="url(#g)" opacity=".3"/>
+      <rect x="26" y="18" width="4" height="4"  rx="2" fill="url(#g)" opacity=".18"/>
+    </svg>
+    <h1>mirror<span>.</span></h1>
+  </div>
+
+  <h1 class="headline">Your conversations<br/>reveal who you are</h1>
+  <p class="sub">
+    mirror. builds a behavioral portrait from your conversations —
+    speech pace, listening quality, filler words, confidence signals —
+    and shows you the patterns you can't see yourself.
+  </p>
+
+  <a class="cta" href="https://chrome.google.com/webstore" target="_blank" rel="noreferrer">
+    Add to Chrome — it's free
+  </a>
+  <br>
+  <a class="secondary-cta" href="/how-it-works">How it works →</a>
+
+  <div class="features">
+    <div class="feature">
+      <div class="dot"></div>
+      <div>
+        <div class="feature-title">Built from real conversations</div>
+        <div class="feature-body">Record Google Meet calls or upload any audio file. Mirror captures how you actually communicate, not how you think you do.</div>
+      </div>
+    </div>
+    <div class="feature">
+      <div class="dot"></div>
+      <div>
+        <div class="feature-title">Patterns across time</div>
+        <div class="feature-body">Each session adds to your portrait. The mirror notices what changes, what doesn't, and what consistently shapes how you show up.</div>
+      </div>
+    </div>
+    <div class="feature">
+      <div class="dot"></div>
+      <div>
+        <div class="feature-title">Private by design</div>
+        <div class="feature-body">Your audio is processed and permanently deleted the moment analysis is complete. Only the insights are stored — never the recording.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="/privacy">Privacy Policy</a>
+    &nbsp;·&nbsp;
+    <a href="mailto:harsh200415@gmail.com">Contact</a>
+    &nbsp;·&nbsp; © 2026 mirror.
+  </div>
+
+</div>
+</body>
+</html>
