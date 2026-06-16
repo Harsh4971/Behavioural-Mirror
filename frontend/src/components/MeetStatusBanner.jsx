@@ -207,13 +207,14 @@ export default function MeetStatusBanner() {
             <div style={{ fontSize: 22, marginBottom: 12, textAlign: "center" }}>🔒</div>
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#f0eeff",
               margin: "0 0 10px", textAlign: "center" }}>
-              Before you record
+              Before you start
             </h3>
             <p style={{ fontSize: 13, color: "#8b89aa", lineHeight: 1.7,
               margin: "0 0 20px", textAlign: "center" }}>
-              You are responsible for ensuring all meeting participants are aware
-              this conversation is being recorded. Please obtain consent from
-              everyone in the call before starting.
+              Mirror uses this recording to build your behavioral portrait — it's
+              private, processed and deleted right after analysis, and never shared
+              with anyone. As a courtesy, it's worth letting others on the call
+              know you're capturing the conversation.
             </p>
             <button
               onClick={() => {
