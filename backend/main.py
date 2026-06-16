@@ -437,39 +437,40 @@ def privacy_policy():
   <h1 style="font-size:28px;font-weight:700;color:#f0eeff;letter-spacing:-0.5px;margin-bottom:8px;">
     Privacy Policy
   </h1>
-  <p style="color:#4a4d6a;font-size:14px;">Mirror: Voice Insights &nbsp;·&nbsp; Effective 9 June 2026</p>
+  <p style="color:#4a4d6a;font-size:14px;">Mirror: Voice Insights &nbsp;·&nbsp; Effective 16 June 2026</p>
 
   <div class="highlight">
-    <strong>The short version:</strong> Your audio is processed to generate insights and deleted immediately afterwards. We never store, sell, or share your recordings.
+    <strong>The short version:</strong> Your audio is written to temporary storage during processing and permanently deleted the moment analysis is complete. We never store, sell, or share your recordings.
   </div>
 
   <h2>What we collect</h2>
   <ul>
     <li><strong>Email address</strong> — used solely for account authentication via Supabase.</li>
-    <li><strong>Audio recordings</strong> — uploaded by you for analysis. Deleted from our servers immediately after processing is complete. Never stored long-term.</li>
+    <li><strong>Audio recordings</strong> — uploaded or recorded by you for analysis. Written to temporary server storage during processing and permanently deleted once analysis is complete. Never retained long-term.</li>
     <li><strong>Behavioural analysis results</strong> — transcripts, speaker patterns, dimension scores, and insights generated from your recordings. Stored in your account so you can track trends over time.</li>
-    <li><strong>Voiceprint embedding</strong> — a mathematical representation of your voice (not a recording) used to identify which speaker is you across sessions. Stored encrypted in your account and can be deleted at any time.</li>
+    <li><strong>Voiceprint embedding (optional)</strong> — if you choose to use the voice training feature, a mathematical representation of your voice (not a recording itself) is stored to help identify which speaker is you in uploaded files. This is entirely optional, can be skipped, and can be deleted at any time.</li>
   </ul>
 
   <h2>What we do not collect</h2>
   <ul>
-    <li>We do not record or store raw audio beyond the duration of analysis.</li>
+    <li>We do not retain raw audio after analysis is complete.</li>
     <li>We do not sell, rent, or share your data with third parties for advertising or marketing.</li>
     <li>We do not track your browsing activity or behaviour outside of the Mirror extension.</li>
+    <li>We do not record any conversation automatically — recording always requires an explicit action from you.</li>
   </ul>
 
   <h2>How your data is processed</h2>
-  <p>When you upload a recording, it is sent securely to our processing server. The following steps occur:</p>
+  <p>When you submit a recording, it is sent securely to our processing server. The following steps occur:</p>
   <ul>
-    <li>Audio is transcribed using the <strong>Groq Whisper API</strong> (Groq's privacy policy applies to transcription).</li>
+    <li>Audio is written to temporary server storage and transcribed using the <strong>Groq Whisper API</strong> (Groq's privacy policy applies to transcription).</li>
     <li>Speaker diarization and voice analysis are performed using <strong>pyannote.audio</strong> models running on our server.</li>
     <li>Behavioural insights are generated using <strong>Groq's language model API</strong>.</li>
-    <li>The audio file is permanently deleted from our server once processing is complete.</li>
+    <li>The audio file is permanently deleted from the server immediately once processing is complete.</li>
   </ul>
   <p>Analysis results (not the audio) are stored in your account database hosted on <strong>Supabase</strong>, a GDPR-compliant cloud database provider.</p>
 
   <h2>Google Meet integration</h2>
-  <p>When using Mirror with Google Meet, the extension can capture audio from your meeting tab only when you explicitly click the Record button. Audio is never captured automatically or without your knowledge. The same data handling rules apply: audio is processed and deleted; only the resulting insights are stored.</p>
+  <p>When using Mirror with Google Meet, the extension can capture audio from your meeting tab only when you explicitly click the Record button. Before your first recording, the extension displays a consent prompt reminding you that you are responsible for ensuring all meeting participants are aware the conversation is being recorded. Audio is never captured automatically or without your knowledge. The same data handling rules apply: audio is processed and permanently deleted; only the resulting insights are stored.</p>
 
   <h2>Third-party services</h2>
   <ul>
@@ -490,7 +491,7 @@ def privacy_policy():
   <h2>Contact</h2>
   <p>Questions or data requests: <a href="mailto:harsh200415@gmail.com">harsh200415@gmail.com</a></p>
 
-  <p class="meta">Mirror: Voice Insights &nbsp;·&nbsp; Privacy Policy &nbsp;·&nbsp; Last updated 9 June 2026</p>
+  <p class="meta">Mirror: Voice Insights &nbsp;·&nbsp; Privacy Policy &nbsp;·&nbsp; Last updated 16 June 2026</p>
 
 </div>
 </body>
