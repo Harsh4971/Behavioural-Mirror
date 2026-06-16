@@ -11,6 +11,13 @@ import ProfileView from "./components/ProfileView"
 import HowItWorksView from "./components/HowItWorksView"
 import MeetStatusBanner from "./components/MeetStatusBanner"
 
+const isExtension = typeof chrome !== "undefined" && !!chrome.runtime?.id
+const isFullPage = new URLSearchParams(window.location.search).get("fullpage") === "1"
+
+function openFullPage() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("index.html") + "?fullpage=1" })
+}
+
 export default function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -108,7 +115,7 @@ export default function App() {
       }} />
     </div>
 
-    <div style={{ maxWidth: 600, margin: "0 auto", padding: 24, position: "relative", zIndex: 1 }}>
+    <div style={{ maxWidth: isFullPage ? 900 : 600, margin: "0 auto", padding: isFullPage ? "32px 40px" : 24, position: "relative", zIndex: 1 }}>
 
       {/* Header */}
       <div style={{ marginBottom: 28, display: "flex",
@@ -136,6 +143,30 @@ export default function App() {
             mirror<span style={{ color: "#1d4ed8" }}>.</span>
           </h1>
         </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Open as full page — only in side panel */}
+          {isExtension && !isFullPage && (
+            <button
+              onClick={openFullPage}
+              title="Open in full page"
+              style={{
+                background: "none", border: "1px solid #1e2438",
+                borderRadius: 7, padding: "6px 10px",
+                cursor: "pointer", color: "#4a4865",
+                display: "flex", alignItems: "center",
+                transition: "border-color 0.15s, color 0.15s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#2e3464"; e.currentTarget.style.color = "#8b89aa" }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#1e2438"; e.currentTarget.style.color = "#4a4865" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M8.5 1.5H12.5V5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12.5 1.5L7.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                <path d="M6 2.5H2.5C1.9 2.5 1.5 2.9 1.5 3.5V11.5C1.5 12.1 1.9 12.5 2.5 12.5H10.5C11.1 12.5 11.5 12.1 11.5 11.5V8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
 
         <div style={{ position: "relative" }}>
           {confirmDelete ? (
@@ -204,9 +235,10 @@ export default function App() {
             </>
           )}
         </div>
+        </div>{/* end flex header-right */}
       </div>
 
-      <MeetStatusBanner />
+      {!isFullPage && <MeetStatusBanner />}
 
       {/* Nav */}
       <nav style={{ display: "flex", gap: 0, marginBottom: 32,
