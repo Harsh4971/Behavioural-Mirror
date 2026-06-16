@@ -75,23 +75,22 @@ export default function AuthView({ onAuth }) {
               return
             }
             const parsed = new URL(callbackUrl)
-
-            // Implicit flow: tokens in hash
             const hashParams = new URLSearchParams(parsed.hash.substring(1))
-            const accessToken = hashParams.get("access_token")
+
+            // Tokens can be in hash (implicit) or query params (some Supabase versions)
+            const accessToken = hashParams.get("access_token") || parsed.searchParams.get("access_token")
+            const refreshToken = hashParams.get("refresh_token") || parsed.searchParams.get("refresh_token") || ""
+
             if (accessToken) {
-              const { data: s, error: se } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: hashParams.get("refresh_token") || "",
-              })
+              const { data: s, error: se } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
               if (se) setError(se.message)
               else onAuth(s.session)
               setLoading(false)
               return
             }
 
-            // PKCE fallback: exchange authorization code for session
-            const code = parsed.searchParams.get("code")
+            // PKCE: exchange authorization code
+            const code = parsed.searchParams.get("code") || hashParams.get("code")
             if (code) {
               const { data: s, error: se } = await supabase.auth.exchangeCodeForSession(code)
               if (se) setError(se.message)
@@ -100,7 +99,10 @@ export default function AuthView({ onAuth }) {
               return
             }
 
-            setError("Could not retrieve session from Google.")
+            // Show the actual error from the URL if present
+            const oauthError = hashParams.get("error_description") || parsed.searchParams.get("error_description")
+              || hashParams.get("error") || parsed.searchParams.get("error")
+            setError(oauthError || "Could not retrieve session from Google.")
             setLoading(false)
           }
         )
