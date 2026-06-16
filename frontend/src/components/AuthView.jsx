@@ -243,13 +243,14 @@ export default function AuthView({ onAuth }) {
             <div style={{ flex: 1, height: 1, background: "#1e2438" }} />
           </div>
 
-          {/* Google OAuth */}
+          {/* Google OAuth — hidden in extension (requires different OAuth setup) */}
           <button type="button" onClick={handleGoogle} disabled={loading}
             style={{ width: "100%", padding: "11px 24px", fontSize: 14, fontWeight: 500,
               cursor: loading ? "not-allowed" : "pointer",
               background: "#0e1320", color: "#d4d2e8",
               border: "1px solid #1e2438", borderRadius: 8,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+              display: isExtension ? "none" : "flex",
+              alignItems: "center", justifyContent: "center", gap: 10,
               transition: "border-color 0.15s", opacity: loading ? 0.5 : 1 }}
             onMouseEnter={e => e.currentTarget.style.borderColor = "#4a4865"}
             onMouseLeave={e => e.currentTarget.style.borderColor = "#1e2438"}>
