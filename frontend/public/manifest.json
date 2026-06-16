@@ -1,10 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Mirror: Voice Insights",
-  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAgqa7+CwHNdbRh8DMfFazypYLHr8SXvHvZyniGgrH+vVyBdd8U4th2R6IVp4n8rdK7jzz3XREstkezRlnNDPu6pgvzazTO4Ptyb+B9H7EvzIQXeI7ftRwfAfZtekHacBNNVfE9eEQkGVP/jv4S5l0w+rMkYqKsmSAo0UbuFatjlpK3IMO8hLDF0vvHnjTJR3njn0/ezFY4DN8VFIAEBalh0drETvvnbu64gQtYUZoSVaR/B4BfRAHAYDLJGqZabQN0uDMXqHykVysFKbsXJ8b6k8Q3k2XSXdPc/0fbVFBda8QoK+qfmpy55o631vP+J5KQSlWRovzF3kbrT/CJEnWuwIDAQAB",
   "short_name": "Mirror",
   "version": "1.0.0",
-  "description": "Record Google Meet calls or upload audio to get AI-powered communication insights. Track filler words, talk ratio, speech pace, and 15+ behavioral signals. Builds a personal profile of how you communicate across different contexts over time.",
+  "description": "AI communication insights from Google Meet calls. Track filler words, talk ratio, speech pace, and 15+ behavioral signals over time.",
   "side_panel": {
     "default_path": "index.html"
   },

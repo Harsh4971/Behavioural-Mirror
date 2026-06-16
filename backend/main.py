@@ -1031,7 +1031,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
         logger.info("[%s] 2/3 Scoring behavioral dimensions...", _sid(session_id))
         emit("scoring", "Scoring behavioral dimensions…")
         dimensions = dimension_scorer.score_all(signals)
-        logger.info("[%s]    Dimensions: %s", _sid(session_id), {k: round(v, 3) for k, v in (dimensions or {}).items()})
+        logger.info("[%s]    Dimensions: %s", _sid(session_id), list((dimensions or {}).keys()))
 
         # ── Step 3: Context detection + insight generation ────────────
         logger.info("[%s] 3/3 Detecting context + generating insights...", _sid(session_id))

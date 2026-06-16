@@ -3,43 +3,79 @@
 
 const API_URL = 'https://harsh200415-mirror-backend.hf.space';
 
-// Reload any open Meet tabs when the extension is installed or reloaded.
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+const MEET_URL_PATTERN = /^https:\/\/meet\.google\.com\/[a-z]+-[a-z]+-[a-z]+/;
+
+// Run on every SW start — disables the panel globally before any user interaction.
+chrome.sidePanel.setOptions({ enabled: false }).catch(() => {});
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+
+// Panel is disabled globally; only Meet tabs get it enabled.
+async function syncPanelEnabled(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const isMeet = MEET_URL_PATTERN.test(tab.url || '');
+    await chrome.sidePanel.setOptions(
+      isMeet
+        ? { tabId, enabled: true, path: 'index.html' }
+        : { tabId, enabled: false }
+    );
+  } catch (_) {}
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => syncPanelEnabled(tabId));
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) syncPanelEnabled(tabId);
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  // Enable for any Meet tabs already open at install/reload time.
+  try {
+    const allTabs = await chrome.tabs.query({});
+    for (const t of allTabs) {
+      if (MEET_URL_PATTERN.test(t.url || '')) {
+        await chrome.sidePanel.setOptions({ tabId: t.id, enabled: true, path: 'index.html' });
+      }
+    }
+  } catch (_) {}
+
   chrome.tabs.query({ url: 'https://meet.google.com/*' }, (tabs) => {
     tabs.forEach(tab => chrome.tabs.reload(tab.id));
   });
 });
 
-// Manually handle action click — onClicked IS a user-gesture event handler.
-// IMPORTANT: sidePanel.open() must be called synchronously (before any await).
-chrome.action.onClicked.addListener(async (tab) => {
-  chrome.sidePanel.open({ tabId: tab.id }).catch(e =>
-    console.error('[mirror] sidePanel.open failed:', e.message)
-  );
+// On non-Meet tabs: open the full-page view.
+// On Meet tabs: open the side panel + pre-fetch stream ID while activeTab grant is fresh.
+// Must be non-async so sidePanel.open() is called within the user gesture context.
+chrome.action.onClicked.addListener((tab) => {
+  if (!MEET_URL_PATTERN.test(tab.url || '')) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('index.html') + '?fullpage=1' });
+    return;
+  }
 
-  if (tab.url?.startsWith('https://meet.google.com/') && !recordingActive) {
-    try {
-      const streamId = await new Promise((resolve, reject) => {
-        chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(id);
+  // Open panel synchronously — panel is already enabled for this tab via syncPanelEnabled.
+  chrome.sidePanel.open({ tabId: tab.id }).catch(e => {
+    console.warn('[mirror] sidePanel.open failed:', e.message);
+  });
+
+  // Pre-fetch stream ID with callback (no await) so activeTab grant is still valid.
+  if (!recordingActive) {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+      if (chrome.runtime.lastError) {
+        console.error('[mirror] getMediaStreamId FAILED:', chrome.runtime.lastError.message);
+        chrome.storage.session.set({
+          pendingStreamId: null,
+          pendingStreamTabId: tab.id,
+          pendingStreamError: chrome.runtime.lastError.message,
         });
-      });
-      console.log('[mirror] getMediaStreamId OK for tab', tab.id);
-      await chrome.storage.session.set({
-        pendingStreamId: streamId,
-        pendingStreamTabId: tab.id,
-        pendingStreamError: null,
-      });
-    } catch (e) {
-      console.error('[mirror] getMediaStreamId FAILED:', e.message);
-      await chrome.storage.session.set({
-        pendingStreamId: null,
-        pendingStreamTabId: tab.id,
-        pendingStreamError: e.message,
-      });
-    }
+      } else {
+        console.log('[mirror] getMediaStreamId OK for tab', tab.id);
+        chrome.storage.session.set({
+          pendingStreamId: id,
+          pendingStreamTabId: tab.id,
+          pendingStreamError: null,
+        });
+      }
+    });
   }
 });
 

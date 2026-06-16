@@ -69,7 +69,6 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       if (session) {
-        setEnrollState("checking")
         // Keep background service worker's JWT in sync for Meet recording
         if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
           chrome.runtime.sendMessage({
@@ -221,7 +220,7 @@ export default function App() {
                     </button>
                   ))}
                   <a
-                    href="https://harsh200415-mirror-backend.hf.space/privacy"
+                    href="https://mirrorai.live/privacy"
                     target="_blank"
                     rel="noreferrer"
                     style={{ display: "block", padding: "10px 14px",
@@ -238,7 +237,7 @@ export default function App() {
         </div>{/* end flex header-right */}
       </div>
 
-      {!isFullPage && <MeetStatusBanner />}
+      {!isFullPage && <MeetStatusBanner onViewHistory={() => setView("history")} />}
 
       {/* Nav */}
       <nav style={{ display: "flex", gap: 0, marginBottom: 32,

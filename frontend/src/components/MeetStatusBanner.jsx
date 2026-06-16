@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { supabase } from "../lib/supabase"
 
-export default function MeetStatusBanner() {
+export default function MeetStatusBanner({ onViewHistory }) {
   const [chunks, setChunks] = useState([])
   const [recording, setRecording] = useState(false)
   const [onMeet, setOnMeet] = useState(false)
@@ -35,24 +35,6 @@ export default function MeetStatusBanner() {
     return () => clearInterval(timerRef.current)
   }, [recording])
 
-  // Auto-dismiss completed and error chunks after 5 seconds
-  useEffect(() => {
-    const settled = chunks.filter(c => c.status === "done" || c.status === "error")
-    if (settled.length === 0) return
-
-    const t = setTimeout(() => {
-      chrome.storage.local.get(null, (items) => {
-        const keys = Object.keys(items).filter(k => {
-          const v = items[k]
-          return k.startsWith("chunk_") && (v.status === "done" || v.status === "error")
-        })
-        if (keys.length > 0) chrome.storage.local.remove(keys)
-      })
-    }, 5000)
-
-    dismissTimers.current.push(t)
-    return () => clearTimeout(t)
-  }, [chunks])
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.storage) return
@@ -128,49 +110,39 @@ export default function MeetStatusBanner() {
     setRecordError(null)
     if (!meetTabId) { setRecordError('No Meet tab found'); return }
 
-    // Get a fresh stream ID RIGHT NOW at button-click time.
-    // Stream IDs from getMediaStreamId expire within seconds — pre-fetching
-    // them on toolbar-icon click (the old approach) caused "Error starting tab capture"
-    // because too much time passed before the offscreen doc called getUserMedia.
-    chrome.tabCapture.getMediaStreamId({ targetTabId: meetTabId }, (freshStreamId) => {
-      if (chrome.runtime.lastError || !freshStreamId) {
-        const err = chrome.runtime.lastError?.message || 'Unknown error'
-        console.error('[mirror-panel] getMediaStreamId failed:', err)
-        setRecordError(`Tab capture failed: ${err}`)
-        return
-      }
+    const recMode = webrtcReady ? "webrtc" : "tabcapture"
 
-      const startWithStream = (streamId) => {
-        const recMode = webrtcReady ? "webrtc" : "tabcapture"
-        chrome.runtime.sendMessage({
-          action: "start_recording_with_stream",
-          tabId: meetTabId,
-          mode: recMode,
-          streamId,
-        }, (res) => {
-          if (chrome.runtime.lastError || res?.error) {
-            const msg = res?.error || chrome.runtime.lastError?.message || "Failed to start"
-            setRecordError(msg)
-          }
-        })
-      }
-
-      // Sync a fresh Supabase token before recording (SW tokens can go stale)
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          chrome.runtime.sendMessage({
-            action: "sync_token",
-            token: session.access_token,
-            userId: session.user.id,
-          }).catch(() => {})
+    const doStart = () => {
+      // Background handles the stream ID — either from the pre-fetched cache
+      // (set when user clicked the toolbar icon) or on-demand via host_permissions.
+      chrome.runtime.sendMessage({
+        action: "start_recording_with_stream",
+        tabId: meetTabId,
+        mode: recMode,
+        streamId: null,
+      }, (res) => {
+        if (chrome.runtime.lastError || res?.error) {
+          const msg = res?.error || chrome.runtime.lastError?.message || "Failed to start"
+          setRecordError(msg)
         }
-        startWithStream(freshStreamId)
-      }).catch(() => startWithStream(freshStreamId))
-    })
+      })
+    }
+
+    // Sync a fresh Supabase token before recording (SW tokens can go stale)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        chrome.runtime.sendMessage({
+          action: "sync_token",
+          token: session.access_token,
+          userId: session.user.id,
+        }).catch(() => {})
+      }
+      doStart()
+    }).catch(() => doStart())
   }
 
   function handleStartRecording() {
-    if (!localStorage.getItem("mirror_consent_v1")) {
+    if (!localStorage.getItem("mirror_consent_v2")) {
       setShowConsent(true)
     } else {
       handleStartRecordingConfirmed()
@@ -211,14 +183,14 @@ export default function MeetStatusBanner() {
             </h3>
             <p style={{ fontSize: 13, color: "#8b89aa", lineHeight: 1.7,
               margin: "0 0 20px", textAlign: "center" }}>
-              Mirror uses this recording to build your behavioral portrait — it's
-              private, processed and deleted right after analysis, and never shared
-              with anyone. As a courtesy, it's worth letting others on the call
-              know you're capturing the conversation.
+              Mirror records this call to build your behavioral portrait. Audio is
+              processed and permanently deleted the moment analysis is complete —
+              never stored or shared. Please ensure all participants on the call
+              are aware that this conversation is being recorded.
             </p>
             <button
               onClick={() => {
-                localStorage.setItem("mirror_consent_v1", "1")
+                localStorage.setItem("mirror_consent_v2", "1")
                 setShowConsent(false)
                 handleStartRecordingConfirmed()
               }}
@@ -290,6 +262,12 @@ export default function MeetStatusBanner() {
             )}
           </div>
 
+          {!recording && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "#4a4865", lineHeight: 1.5 }}>
+              By recording, you confirm all participants are aware of this recording.
+            </div>
+          )}
+
           {recordError && (
             <div style={{ marginTop: 8, fontSize: 12, color: "#f87171" }}>{recordError}</div>
           )}
@@ -343,23 +321,32 @@ export default function MeetStatusBanner() {
       {/* Completed */}
       {done.length > 0 && !recording && active.length === 0 && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 10,
           background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)",
           borderRadius: 10, padding: "10px 14px", marginBottom: 8,
         }}>
-          <span style={{ fontSize: 15, lineHeight: 1 }}>✓</span>
-          <div>
-            <div style={{ fontSize: 12, color: "#86efac", fontWeight: 500 }}>
-              Meet insights ready — check History
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>✓</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: "#86efac", fontWeight: 500 }}>
+                Analysis complete — {done.length} segment{done.length > 1 ? "s" : ""} ready
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: "#4a4d6a", marginTop: 2 }}>
-              {done.length} segment{done.length > 1 ? "s" : ""} analysed
-            </div>
+            <button onClick={clearAll} style={{
+              background: "none", border: "none",
+              color: "#4a4d6a", cursor: "pointer", fontSize: 16, lineHeight: 1,
+            }}>×</button>
           </div>
-          <button onClick={clearAll} style={{
-            marginLeft: "auto", background: "none", border: "none",
-            color: "#4a4d6a", cursor: "pointer", fontSize: 16, lineHeight: 1,
-          }}>×</button>
+          <button
+            onClick={() => { clearAll(); onViewHistory?.() }}
+            style={{
+              marginTop: 8, width: "100%",
+              background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)",
+              borderRadius: 6, padding: "6px 0",
+              color: "#86efac", fontSize: 12, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            View in History →
+          </button>
         </div>
       )}
     </div>
