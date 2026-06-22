@@ -10,6 +10,7 @@ import HistoryView from "./components/HistoryView"
 import ProfileView from "./components/ProfileView"
 import HowItWorksView from "./components/HowItWorksView"
 import MeetStatusBanner from "./components/MeetStatusBanner"
+import FeedbackModal from "./components/FeedbackModal"
 
 const isExtension = typeof chrome !== "undefined" && !!chrome.runtime?.id
 const isFullPage = new URLSearchParams(window.location.search).get("fullpage") === "1"
@@ -30,6 +31,7 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showReenroll, setShowReenroll] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
 
   // Each key tracks how many times we've navigated TO that view — re-mounting
   // the wrapper div causes the .view-enter animation to fire every tab switch.
@@ -204,6 +206,9 @@ export default function App() {
                     { label: "Train your voice",
                       onClick: () => { setShowReenroll(true); setShowAccountMenu(false) },
                       color: "#f0eeff" },
+                    { label: "Send feedback",
+                      onClick: () => { setShowFeedback(true); setShowAccountMenu(false) },
+                      color: "#f0eeff" },
                     { label: "Sign out",
                       onClick: () => { supabase.auth.signOut(); setShowAccountMenu(false) },
                       color: "#f0eeff" },
@@ -280,6 +285,10 @@ export default function App() {
             />
           </div>
         </div>
+      )}
+
+      {showFeedback && (
+        <FeedbackModal onClose={() => setShowFeedback(false)} />
       )}
 
       {view === "howItWorks" && (

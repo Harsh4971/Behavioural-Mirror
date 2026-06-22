@@ -253,6 +253,8 @@ function SessionCard({ s, index, onSelect, confirmDeleteId, setConfirmDeleteId, 
   )
 }
 
+const PAGE_SIZE = 10
+
 export default function HistoryView({ onSelect, active = false }) {
   const [sessions, setSessions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -260,12 +262,16 @@ export default function HistoryView({ onSelect, active = false }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [contextFilter, setContextFilter] = useState("all")
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const handleDelete = async (sessionId) => {
     setDeleting(true)
     try {
       await api.delete(`/api/sessions/${sessionId}`)
       setSessions(prev => prev.filter(s => s.session_id !== sessionId))
+      setTotal(prev => prev - 1)
     } catch (e) {
       console.error("Delete failed:", e)
     } finally {
@@ -274,18 +280,32 @@ export default function HistoryView({ onSelect, active = false }) {
     }
   }
 
-  const loadSessions = () => {
-    setLoading(true)
-    setLoadError(false)
-    api.get("/api/sessions")
-      .then(res => setSessions(res.data))
-      .catch(err => { console.error(err); setLoadError(true) })
-      .finally(() => setLoading(false))
+  const loadSessions = (pageNum = 0) => {
+    if (pageNum === 0) {
+      setLoading(true)
+      setLoadError(false)
+      setSessions([])
+      setPage(0)
+    } else {
+      setLoadingMore(true)
+    }
+    api.get(`/api/sessions?page=${pageNum}&page_size=${PAGE_SIZE}`)
+      .then(res => {
+        const { sessions: newSessions, total: t } = res.data
+        setSessions(prev => pageNum === 0 ? newSessions : [...prev, ...newSessions])
+        setTotal(t)
+        setPage(pageNum)
+      })
+      .catch(err => {
+        console.error(err)
+        if (pageNum === 0) setLoadError(true)
+      })
+      .finally(() => { setLoading(false); setLoadingMore(false) })
   }
 
   useEffect(() => {
     if (!active) return
-    loadSessions()
+    loadSessions(0)
   }, [active])
 
   if (loading) return (
@@ -332,7 +352,9 @@ export default function HistoryView({ onSelect, active = false }) {
       <div style={{ display: "flex", justifyContent: "space-between",
         alignItems: "center", marginBottom: 16 }}>
         <p style={{ fontSize: 13, color: "#4a4865", margin: 0 }}>
-          {filtered.length} of {sessions.length} session{sessions.length > 1 ? "s" : ""}
+          {sessions.length < total
+            ? `${sessions.length} of ${total} sessions loaded`
+            : `${filtered.length} of ${total} session${total !== 1 ? "s" : ""}`}
         </p>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {contexts.map(ctx => {
@@ -367,13 +389,43 @@ export default function HistoryView({ onSelect, active = false }) {
         ))}
       </div>
 
-      {sessions.length >= 3 && (
+      {/* Load more */}
+      {sessions.length < total && (
+        <div style={{ marginTop: 16, textAlign: "center" }}>
+          <button
+            onClick={() => loadSessions(page + 1)}
+            disabled={loadingMore}
+            style={{
+              background: "none",
+              border: "1px solid #1e2438",
+              borderRadius: 8,
+              padding: "9px 24px",
+              fontSize: 13,
+              color: loadingMore ? "#4a4865" : "#8b89aa",
+              cursor: loadingMore ? "not-allowed" : "pointer",
+              fontFamily: "inherit",
+              transition: "border-color 0.15s, color 0.15s",
+            }}
+            onMouseEnter={e => { if (!loadingMore) { e.currentTarget.style.borderColor = "#2e3464"; e.currentTarget.style.color = "#f0eeff" } }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "#1e2438"; e.currentTarget.style.color = loadingMore ? "#4a4865" : "#8b89aa" }}
+          >
+            {loadingMore
+              ? "Loading…"
+              : `Load ${Math.min(PAGE_SIZE, total - sessions.length)} more`}
+          </button>
+          <p style={{ fontSize: 11, color: "#4a4865", marginTop: 8 }}>
+            {total - sessions.length} more session{total - sessions.length !== 1 ? "s" : ""} not shown
+          </p>
+        </div>
+      )}
+
+      {sessions.length >= 3 && sessions.length >= total && (
         <Reveal>
           <div style={{ marginTop: 20, padding: 14,
             background: "rgba(52,211,153,0.06)",
             border: "1px solid rgba(52,211,153,0.2)",
             borderRadius: 10, fontSize: 13, color: "#34d399" }}>
-            ✨ {sessions.length} sessions recorded — your behavioral profile is active.
+            ✨ {total} sessions recorded — your behavioral profile is active.
             Check the Profile tab.
           </div>
         </Reveal>

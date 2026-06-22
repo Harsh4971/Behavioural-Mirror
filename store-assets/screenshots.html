@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>Mirror: Voice Insights — Store Screenshots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #000;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 0 100px;
+  gap: 40px;
+}
+
+.instructions {
+  width: 1280px;
+  padding: 14px 20px;
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  color: #555;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.instructions strong { color: #777; }
+
+.slide-label {
+  width: 1280px;
+  color: #333;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding-bottom: 6px;
+}
+
+/* ─── SLIDE BASE ─────────────────────────────────────── */
+.slide {
+  width: 1280px;
+  height: 800px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #020509;
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  color: #f0eeff;
+}
+
+/* Blobs must be absolute — use !important to win cascade over .slide > * below */
+.blob1 {
+  position: absolute !important;
+  top: -120px; right: -120px;
+  width: 620px; height: 620px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(29,78,216,0.10) 0%, transparent 65%);
+  pointer-events: none; z-index: 0;
+}
+.blob2 {
+  position: absolute !important;
+  bottom: -80px; left: -80px;
+  width: 500px; height: 500px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(8,145,178,0.07) 0%, transparent 65%);
+  pointer-events: none; z-index: 0;
+}
+/* Elevate all real content above blobs */
+.slide > *:not(.blob1):not(.blob2) { position: relative; z-index: 1; }
+
+/* ─── SHARED COMPONENTS ──────────────────────────────── */
+.slide-header {
+  height: 50px;
+  padding: 0 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #0d1120;
+}
+
+.mirror-logo { display: flex; align-items: center; gap: 9px; }
+.mirror-logo-text {
+  font-size: 17px; font-weight: 700; letter-spacing: -0.3px; color: #f0eeff;
+}
+.mirror-logo-text span { color: #1d4ed8; }
+
+.slide-counter { display: none; }
+
+.card {
+  background: #0d1220;
+  border: 1px solid #1a2035;
+  border-radius: 12px;
+}
+
+.grad {
+  background: linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.pill {
+  display: inline-flex; align-items: center; padding: 4px 12px;
+  border-radius: 20px; font-size: 12px; font-weight: 500;
+}
+
+/* Score bars */
+.score-row {
+  display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 10px;
+}
+.score-row:last-child { margin-bottom: 0; }
+.score-label { font-size: 11px; color: #8b89aa; }
+.score-val   { font-size: 10px; font-weight: 700; }
+.score-bars  { display: flex; gap: 3px; }
+.seg { width: 17px; height: 6px; border-radius: 3px; transition: all 0.2s; }
+
+/* Signal-colored left-border card */
+.obs-card {
+  background: #0d1220; border: 1px solid #1a2035;
+  border-radius: 10px; padding: 14px 16px;
+}
+
+/* Metric tile */
+.metric-tile {
+  background: #0d1220; border: 1px solid #1a2035;
+  border-radius: 10px; padding: 14px 12px; text-align: center;
+}
+
+/* Context chip */
+.ctx-chip {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; padding: 3px 10px; border-radius: 20px;
+}
+
+/* Section label */
+.sec-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; margin-bottom: 10px;
+  background: linear-gradient(135deg, #1d4ed8, #0891b2);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Mirror feed item icon */
+.feed-icon {
+  width: 30px; height: 30px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+
+/* Coaching card */
+.coach-card {
+  background: #0d1220; border: 1px solid #1a2035; border-radius: 12px;
+  padding: 18px 20px;
+}
+
+/* score colors */
+.c1 { background: #f87171; }
+.c2 { background: #fb923c; }
+.c3 { background: #f59e0b; }
+.c4 { background: #34d399; box-shadow: 0 0 5px rgba(52,211,153,0.3); }
+.c5 { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.35); }
+.c0 { background: #1e2438; }
+</style>
+</head>
+<body>
+
+<div class="instructions">
+  <strong>Capture instructions (Chrome):</strong> Open DevTools → Device Toolbar → set 1280 × 800 → Ctrl+Shift+P / Cmd+Shift+P → type "Capture screenshot" → hit Enter. Scroll to each slide and repeat. Each slide is a separate 1280×800 block. You need 5 screenshots total.
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 1 — Google Meet integration
+═══════════════════════════════════════════════════════════════════ -->
+<div class="slide-label">Slide 1 / 5 — Meet integration</div>
+<div class="slide" id="s1">
+  <div class="blob1"></div><div class="blob2"></div>
+
+  <!-- Header -->
+  <div class="slide-header">
+    <div class="mirror-logo">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="hg1" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+        <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#hg1)" opacity=".4"/>
+        <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#hg1)" opacity=".65"/>
+        <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#hg1)"/>
+        <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#hg1)" opacity=".65"/>
+        <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#hg1)" opacity=".4"/>
+        <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+        <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#hg1)" opacity=".18"/>
+        <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#hg1)" opacity=".3"/>
+        <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hg1)" opacity=".38"/>
+        <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#hg1)" opacity=".3"/>
+        <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#hg1)" opacity=".18"/>
+      </svg>
+      <span class="mirror-logo-text">mirror<span>.</span></span>
+    </div>
+    <span class="slide-counter">1 / 5</span>
+  </div>
+
+  <!-- Headline -->
+  <div style="text-align:center;padding:18px 40px 14px;">
+    <div style="font-size:27px;font-weight:800;letter-spacing:-0.5px;line-height:1.2;color:#f0eeff;">
+      Your Google Meet calls, <span class="grad">behaviorally analyzed.</span>
+    </div>
+    <div style="font-size:13.5px;color:#8b89aa;margin-top:7px;">
+      One click to record. Automatic speaker detection. AI insights ready before the meeting wraps.
+    </div>
+  </div>
+
+  <!-- Two-panel mockup -->
+  <div style="display:flex;height:576px;margin:0 36px;border-radius:14px;overflow:hidden;border:1px solid #1a2035;box-shadow:0 24px 80px rgba(0,0,0,0.7);">
+
+    <!-- LEFT: Google Meet mockup -->
+    <div style="flex:0 0 710px;background:#202124;display:flex;flex-direction:column;position:relative;">
+
+      <!-- Chrome browser bar -->
+      <div style="height:34px;background:#17181a;display:flex;align-items:center;padding:0 14px;gap:8px;border-bottom:1px solid #111214;flex-shrink:0;">
+        <div style="display:flex;gap:5px;">
+          <div style="width:11px;height:11px;border-radius:50%;background:#ff5f57;"></div>
+          <div style="width:11px;height:11px;border-radius:50%;background:#febc2e;"></div>
+          <div style="width:11px;height:11px;border-radius:50%;background:#28c840;"></div>
+        </div>
+        <div style="flex:1;background:#2d2e30;border-radius:20px;height:22px;display:flex;align-items:center;padding:0 10px;gap:6px;max-width:380px;margin:0 auto;">
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 1a7 7 0 100 14A7 7 0 008 1z" stroke="#9aa0a6" stroke-width="1.2"/></svg>
+          <span style="font-size:11.5px;color:#9aa0a6;letter-spacing:0.1px;">meet.google.com/rbc-kxmt-fyh</span>
+          <svg width="9" height="9" viewBox="0 0 16 16" fill="none" style="margin-left:auto;"><path d="M12 7H8V3" stroke="#9aa0a6" stroke-width="1.5" stroke-linecap="round"/><path d="M8 3l4 4-4 4" stroke="#9aa0a6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="width:52px;"></div>
+      </div>
+
+      <!-- Meet header bar -->
+      <div style="height:40px;background:#202124;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid #2d2e30;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <!-- Google Meet logo approximation -->
+          <svg width="20" height="20" viewBox="0 0 48 48" fill="none">
+            <rect x="4" y="14" width="26" height="20" rx="3" fill="#00832d"/>
+            <path d="M30 20l12-6v20l-12-6V20z" fill="#00832d"/>
+          </svg>
+          <span style="font-size:13px;color:#e8eaed;font-weight:500;letter-spacing:0.1px;">Google Meet</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="font-size:12px;color:#9aa0a6;background:#2d2e30;padding:3px 10px;border-radius:4px;letter-spacing:0.3px;">rbc-kxmt-fyh</div>
+          <div style="font-size:11.5px;color:#9aa0a6;">·</div>
+          <div style="font-size:12px;color:#9aa0a6;">4 participants</div>
+          <div style="font-size:12px;color:#9aa0a6;">14:23</div>
+        </div>
+      </div>
+
+      <!-- Participant grid -->
+      <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;padding:10px;position:relative;">
+
+        <!-- Tile 1 — JR (blue) -->
+        <div style="background:linear-gradient(145deg,#111c35,#0c1428);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+          <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#1a42b8,#142e90);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#c8d4f0;letter-spacing:-0.5px;">JR</div>
+          <div style="position:absolute;bottom:9px;left:11px;right:11px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:#8a8faa;font-weight:500;">Jane R.</span>
+            <div style="width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 2a3 3 0 013 3v4a3 3 0 01-6 0V5a3 3 0 013-3z" fill="#9ca3af"/><line x1="2" y1="2" x2="14" y2="14" stroke="#f87171" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 2 — TM (purple) -->
+        <div style="background:linear-gradient(145deg,#1a1030,#110a22);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+          <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#6828cc,#521eaa);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#d0c0f0;">TM</div>
+          <div style="position:absolute;bottom:9px;left:11px;right:11px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:#8a8faa;font-weight:500;">Tom M.</span>
+            <div style="width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center;">
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M8 2a3 3 0 013 3v4a3 3 0 01-6 0V5a3 3 0 013-3z" fill="#9ca3af"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 3 — AK (green) -->
+        <div style="background:linear-gradient(145deg,#0f2820,#0a1c16);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+          <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#047a58,#035e42);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:#b0d8c8;">AK</div>
+          <div style="position:absolute;bottom:9px;left:11px;">
+            <span style="font-size:11px;color:#8a8faa;font-weight:500;">Alex K.</span>
+          </div>
+        </div>
+
+        <!-- Tile 4 — YOU (cyan, active speaker) -->
+        <div style="background:linear-gradient(145deg,#091a28,#06121e);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;box-shadow:inset 0 0 0 2px rgba(8,145,178,0.45);">
+          <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#0776a0,#055e80);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#b0ddf0;letter-spacing:-0.3px;">YOU</div>
+          <div style="position:absolute;bottom:9px;left:11px;right:11px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:11px;color:#5b9cf6;font-weight:600;">You (speaking)</span>
+            <div style="display:flex;gap:2.5px;align-items:flex-end;">
+              <div style="width:2.5px;height:7px;background:#34d399;border-radius:1.5px;opacity:0.7;"></div>
+              <div style="width:2.5px;height:11px;background:#34d399;border-radius:1.5px;"></div>
+              <div style="width:2.5px;height:8px;background:#34d399;border-radius:1.5px;opacity:0.85;"></div>
+              <div style="width:2.5px;height:13px;background:#34d399;border-radius:1.5px;"></div>
+              <div style="width:2.5px;height:7px;background:#34d399;border-radius:1.5px;opacity:0.7;"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Meet bottom bar -->
+      <div style="height:52px;background:#202124;display:flex;align-items:center;justify-content:center;gap:10px;border-top:1px solid #2d2e30;flex-shrink:0;">
+        <!-- Mic -->
+        <div style="width:42px;height:42px;border-radius:50%;background:#3c4043;display:flex;align-items:center;justify-content:center;cursor:pointer;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2a4 4 0 014 4v6a4 4 0 01-8 0V6a4 4 0 014-4z" fill="#e8eaed"/><path d="M6 10v2a6 6 0 0012 0v-2" stroke="#e8eaed" stroke-width="1.5" stroke-linecap="round"/><line x1="12" y1="18" x2="12" y2="22" stroke="#e8eaed" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <!-- Camera -->
+        <div style="width:42px;height:42px;border-radius:50%;background:#3c4043;display:flex;align-items:center;justify-content:center;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="6" width="14" height="12" rx="2" fill="#e8eaed"/><path d="M16 10l6-3v10l-6-3V10z" fill="#e8eaed"/></svg>
+        </div>
+        <!-- Captions -->
+        <div style="width:42px;height:42px;border-radius:50%;background:#3c4043;display:flex;align-items:center;justify-content:center;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="2" y="5" width="20" height="14" rx="2" stroke="#e8eaed" stroke-width="1.5"/><path d="M6 12h4M6 15h8M14 12h4" stroke="#e8eaed" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <!-- More -->
+        <div style="width:42px;height:42px;border-radius:50%;background:#3c4043;display:flex;align-items:center;justify-content:center;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="5" cy="12" r="1.5" fill="#e8eaed"/><circle cx="12" cy="12" r="1.5" fill="#e8eaed"/><circle cx="19" cy="12" r="1.5" fill="#e8eaed"/></svg>
+        </div>
+        <!-- End call -->
+        <div style="width:52px;height:42px;border-radius:24px;background:#ea4335;display:flex;align-items:center;justify-content:center;margin-left:6px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a1 1 0 00-1.04.26l-1.9 1.9a15.05 15.05 0 01-6.51-6.51l1.9-1.9a1 1 0 00.26-1.04 11.35 11.35 0 01-.56-3.53c0-.55-.45-1-1-1H4.03a1 1 0 00-1 1c0 9.39 7.61 17 17 17a1 1 0 001-1v-3.97a1 1 0 00-1.02-.65z" fill="#fff"/></svg>
+        </div>
+      </div>
+    </div><!-- end left panel -->
+
+    <!-- RIGHT: Mirror side panel -->
+    <div style="flex:1;background:#080b12;border-left:1px solid #1a2035;display:flex;flex-direction:column;overflow:hidden;">
+
+      <!-- Panel header -->
+      <div style="padding:14px 18px 12px;border-bottom:1px solid #0d1120;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div class="mirror-logo">
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+              <defs><linearGradient id="pg1" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+              <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#pg1)" opacity=".4"/>
+              <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#pg1)" opacity=".65"/>
+              <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#pg1)"/>
+              <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#pg1)" opacity=".65"/>
+              <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#pg1)" opacity=".4"/>
+              <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+              <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#pg1)" opacity=".18"/>
+              <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#pg1)" opacity=".3"/>
+              <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#pg1)" opacity=".38"/>
+              <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#pg1)" opacity=".3"/>
+              <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#pg1)" opacity=".18"/>
+            </svg>
+            <span style="font-size:15px;font-weight:700;color:#f0eeff;letter-spacing:-0.2px;">mirror<span style="color:#1d4ed8;">.</span></span>
+          </div>
+          <button style="background:#0d1220;border:1px solid #1a2035;border-radius:7px;padding:5px 12px;font-size:12px;color:#8b89aa;cursor:default;font-family:inherit;">Account ▾</button>
+        </div>
+
+        <!-- Recording banner -->
+        <div style="background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.22);border-radius:8px;padding:9px 14px;display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:7px;height:7px;border-radius:50%;background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,0.8);flex-shrink:0;"></div>
+            <span style="font-size:12.5px;color:#fca5a5;font-weight:600;">Recording  14:23</span>
+          </div>
+          <button style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:4px 11px;font-size:11.5px;color:#f87171;cursor:default;font-family:inherit;font-weight:600;">■ Stop</button>
+        </div>
+      </div>
+
+      <!-- Nav tabs -->
+      <div style="display:flex;border-bottom:1px solid #1a2035;padding:0 18px;">
+        <div style="padding:9px 14px 7px;font-size:12.5px;font-weight:600;color:#5b9cf6;border-bottom:2px solid #1d4ed8;">Profile</div>
+        <div style="padding:9px 14px 7px;font-size:12.5px;color:#4a4d6a;">Upload</div>
+        <div style="padding:9px 14px 7px;font-size:12.5px;color:#4a4d6a;">History</div>
+      </div>
+
+      <!-- Content: actual profile content, dimmed -->
+      <div style="flex:1;overflow:hidden;padding:14px 18px;">
+
+        <!-- Session in progress banner -->
+        <div style="background:rgba(29,78,216,0.06);border:1px solid rgba(29,78,216,0.18);border-radius:8px;padding:9px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:#1d4ed8;flex-shrink:0;"></div>
+          <span style="font-size:12px;color:#5b9cf6;font-weight:500;">Session in progress · Speaker detection active</span>
+        </div>
+
+        <!-- Completeness (muted) -->
+        <div style="margin-bottom:14px;opacity:0.6;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+            <span style="font-size:11px;color:#8b89aa;">Profile completeness</span>
+            <span style="font-size:11px;color:#4a4d6a;">45% · Building</span>
+          </div>
+          <div style="height:3px;background:#131827;border-radius:2px;overflow:hidden;">
+            <div style="width:45%;height:100%;background:linear-gradient(135deg,#1d4ed8,#0891b2);border-radius:2px;"></div>
+          </div>
+        </div>
+
+        <!-- Mirror Feed — real content, dimmed -->
+        <div style="font-size:9px;font-weight:700;letter-spacing:1.2px;color:#2a3255;text-transform:uppercase;margin-bottom:9px;">YOUR MIRROR FEED</div>
+
+        <!-- Feed item 1 -->
+        <div style="background:#0a0e1a;border:1px solid #141c2e;border-radius:8px;padding:10px 12px;margin-bottom:7px;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:24px;height:24px;border-radius:6px;background:rgba(129,140,248,0.1);border:1px solid rgba(129,140,248,0.18);display:flex;align-items:center;justify-content:center;font-size:11px;color:#818cf8;font-weight:700;flex-shrink:0;">↕</div>
+          <div>
+            <div style="font-size:9.5px;color:#4a5270;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Context contrast</div>
+            <div style="font-size:11.5px;color:#5a5f80;line-height:1.5;">More assertive in evaluative contexts — filler rate drops by half when assessed</div>
+          </div>
+        </div>
+
+        <!-- Feed item 2 -->
+        <div style="background:#0a0e1a;border:1px solid #141c2e;border-radius:8px;padding:10px 12px;margin-bottom:7px;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:24px;height:24px;border-radius:6px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;color:#34d399;font-weight:700;flex-shrink:0;">↑</div>
+          <div>
+            <div style="font-size:9.5px;color:#2a4a3a;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Improving</div>
+            <div style="font-size:11.5px;color:#5a5f80;line-height:1.5;">Filler rate down 36% across your last 4 sessions — measurable progress</div>
+          </div>
+        </div>
+
+        <!-- Feed item 3 -->
+        <div style="background:#0a0e1a;border:1px solid #141c2e;border-radius:8px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;">
+          <div style="width:24px;height:24px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;font-size:11px;color:#f59e0b;font-weight:700;flex-shrink:0;">●</div>
+          <div>
+            <div style="font-size:9.5px;color:#4a4020;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px;">Pattern</div>
+            <div style="font-size:11.5px;color:#5a5f80;line-height:1.5;">Dominant in final third of collaborative sessions — consistent across 5 calls</div>
+          </div>
+        </div>
+      </div>
+    </div><!-- end right panel -->
+  </div><!-- end two-panel -->
+
+  <!-- Feature pills -->
+  <div style="display:flex;justify-content:center;gap:14px;padding:12px 0 0;">
+    <div class="pill" style="background:rgba(29,78,216,0.08);color:#5b9cf6;border:1px solid rgba(29,78,216,0.22);">⚡ WebRTC speaker detection</div>
+    <div class="pill" style="background:rgba(8,145,178,0.08);color:#0891b2;border:1px solid rgba(8,145,178,0.22);">🔒 Audio deleted immediately after analysis</div>
+    <div class="pill" style="background:rgba(52,211,153,0.08);color:#34d399;border:1px solid rgba(52,211,153,0.22);">📊 15+ behavioral signals extracted</div>
+  </div>
+</div><!-- end slide 1 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 2 — Results overview (signals)
+═══════════════════════════════════════════════════════════════════ -->
+<div class="slide-label">Slide 2 / 5 — Behavioral signals</div>
+<div class="slide" id="s2">
+  <div class="blob1" style="opacity:0.8;"></div><div class="blob2" style="opacity:0.8;"></div>
+
+  <div class="slide-header">
+    <div class="mirror-logo">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="hg2" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+        <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#hg2)" opacity=".4"/>
+        <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#hg2)" opacity=".65"/>
+        <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#hg2)"/>
+        <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#hg2)" opacity=".65"/>
+        <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#hg2)" opacity=".4"/>
+        <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+        <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#hg2)" opacity=".18"/>
+        <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#hg2)" opacity=".3"/>
+        <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hg2)" opacity=".38"/>
+        <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#hg2)" opacity=".3"/>
+        <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#hg2)" opacity=".18"/>
+      </svg>
+      <span class="mirror-logo-text">mirror<span>.</span></span>
+    </div>
+    <span class="slide-counter">2 / 5</span>
+  </div>
+
+  <!-- Headline -->
+  <div style="text-align:center;padding:16px 40px 12px;">
+    <div style="font-size:26px;font-weight:800;letter-spacing:-0.4px;color:#f0eeff;line-height:1.2;">
+      15+ behavioral signals. <span class="grad">Every conversation.</span>
+    </div>
+    <div style="font-size:13px;color:#8b89aa;margin-top:6px;">
+      Talk ratio · Speech rate · Filler words · Interruptions · Response latency · Vocabulary richness · and more
+    </div>
+  </div>
+
+  <!-- Panel -->
+  <div style="margin:0 auto;width:1020px;background:#0d1220;border:1px solid #1a2035;border-radius:14px;box-shadow:0 20px 70px rgba(0,0,0,0.55);overflow:hidden;">
+
+    <!-- Speaker bar -->
+    <div style="padding:12px 20px 10px;border-bottom:1px solid #131827;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:12px;color:#8b89aa;">
+        <span style="margin-right:6px;">📁 product-sync.webm  ·</span>
+        Analysis for <strong style="color:#f0eeff;">Speaker 1</strong>
+        <span style="margin-left:8px;color:#34d399;font-weight:500;">· 92% voice match</span>
+      </div>
+      <button style="font-size:11.5px;color:#8b89aa;background:#0a0d18;border:1px solid #1a2035;border-radius:20px;padding:3px 12px;cursor:default;font-family:inherit;">Not you?</button>
+    </div>
+
+    <!-- Saved banner -->
+    <div style="padding:8px 20px;border-bottom:1px solid #131827;display:flex;align-items:center;gap:7px;background:rgba(52,211,153,0.03);">
+      <span style="color:#34d399;font-size:13px;">✓</span>
+      <span style="font-size:12px;color:#4a7a6a;">Session saved — your mirror has been updated.</span>
+    </div>
+
+    <!-- Results tabs -->
+    <div style="display:flex;border-bottom:1px solid #1a2035;padding:0 20px;">
+      <div style="padding:9px 14px 7px;font-size:12.5px;font-weight:600;color:#5b9cf6;border-bottom:2px solid #1d4ed8;">Overview</div>
+      <div style="padding:9px 14px 7px;font-size:12.5px;color:#4a4d6a;">Dimensions</div>
+      <div style="padding:9px 14px 7px;font-size:12.5px;color:#4a4d6a;">Coaching</div>
+      <div style="padding:9px 14px 7px;font-size:12.5px;color:#4a4d6a;">Signals</div>
+    </div>
+
+    <!-- Two-column layout -->
+    <div style="display:flex;gap:0;padding:16px 20px 16px;">
+
+      <!-- Left col -->
+      <div style="flex:0 0 480px;padding-right:20px;border-right:1px solid #131827;">
+
+        <!-- Context chips -->
+        <div style="display:flex;gap:7px;margin-bottom:13px;align-items:center;">
+          <span class="ctx-chip" style="background:rgba(29,78,216,0.1);color:#5b9cf6;border:1px solid rgba(29,78,216,0.28);">COLLABORATIVE</span>
+          <span class="ctx-chip" style="background:#0a0d18;color:#4a4d6a;border:1px solid #1a2035;">INFLUENTIAL</span>
+          <span style="font-size:10px;color:#2a3050;">auto-detected</span>
+        </div>
+
+        <!-- Conversation card -->
+        <div style="background:#090d1c;border-left:3px solid #818cf8;border-radius:0 8px 8px 0;padding:13px 15px;margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">The Conversation</div>
+          <p style="font-size:13px;color:#c7d2fe;line-height:1.7;margin:0;">A working session on product roadmap priorities. Two primary voices — one driving the agenda, one challenging timeline assumptions with data.</p>
+        </div>
+
+        <!-- Your Perspective -->
+        <div style="background:#090d1c;border:1px solid rgba(59,130,246,0.15);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;padding:13px 15px;margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:700;color:#5b9cf6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Your Perspective</div>
+          <p style="font-size:13px;color:#f0eeff;line-height:1.75;margin:0;">You framed the scope tradeoffs clearly and pushed back on two timeline proposals. Your questions were precise and forward-looking, though you gave ground on the third proposal without a counter-offer.</p>
+        </div>
+
+        <!-- Notable pattern -->
+        <div style="background:rgba(29,78,216,0.05);border:1px solid rgba(29,78,216,0.18);border-radius:8px;padding:12px 15px;">
+          <div style="font-size:10px;font-weight:700;color:#5b9cf6;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Notable Pattern</div>
+          <p style="font-size:13px;color:#f0eeff;line-height:1.6;margin:0;">You dominated the last third of the session — speaking 78% of the time over 6 consecutive minutes — without asking a single question.</p>
+        </div>
+      </div>
+
+      <!-- Right col -->
+      <div style="flex:1;padding-left:20px;">
+
+        <!-- 3 metric tiles -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+          <div class="metric-tile">
+            <div style="font-size:10.5px;color:#4a4d6a;margin-bottom:5px;">Duration</div>
+            <div style="font-size:22px;font-weight:700;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">23</div>
+            <div style="font-size:10.5px;color:#8b89aa;margin-top:3px;">minutes</div>
+          </div>
+          <div class="metric-tile">
+            <div style="font-size:10.5px;color:#4a4d6a;margin-bottom:5px;">Speech rate</div>
+            <div style="font-size:22px;font-weight:700;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">142</div>
+            <div style="font-size:10.5px;color:#8b89aa;margin-top:3px;">wpm</div>
+          </div>
+          <div class="metric-tile">
+            <div style="font-size:10.5px;color:#4a4d6a;margin-bottom:5px;">Filler words</div>
+            <div style="font-size:22px;font-weight:700;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;">3.2</div>
+            <div style="font-size:10.5px;color:#8b89aa;margin-top:3px;">/100 words</div>
+          </div>
+        </div>
+
+        <!-- Talk split bar -->
+        <div style="background:#090d1c;border:1px solid #1a2035;border-radius:10px;padding:13px 15px;margin-bottom:12px;">
+          <div style="font-size:10.5px;color:#4a4d6a;margin-bottom:9px;">Talk split</div>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;gap:1px;">
+            <div style="width:54%;background:#3b82f6;"></div>
+            <div style="width:38%;background:#8b5cf6;"></div>
+            <div style="width:8%;background:#1e2438;"></div>
+          </div>
+          <div style="display:flex;gap:14px;margin-top:8px;">
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:8px;height:8px;border-radius:2px;background:#3b82f6;"></div>
+              <span style="font-size:10.5px;color:#8b89aa;">You</span>
+              <span style="font-size:12px;font-weight:700;color:#f0eeff;">54%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:8px;height:8px;border-radius:2px;background:#8b5cf6;"></div>
+              <span style="font-size:10.5px;color:#8b89aa;">Others</span>
+              <span style="font-size:12px;font-weight:700;color:#f0eeff;">38%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <div style="width:8px;height:8px;border-radius:2px;background:#1e2438;"></div>
+              <span style="font-size:10.5px;color:#8b89aa;">Silence</span>
+              <span style="font-size:12px;font-weight:700;color:#f0eeff;">8%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Observation card -->
+        <div class="obs-card" style="border-left:3px solid #818cf8;">
+          <div style="font-size:10px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:7px;">talk ratio</div>
+          <p style="font-size:13px;color:#f0eeff;line-height:1.65;margin:0 0 8px;">You held 54% of airtime in a collaborative session — within norm, but the balance shifted significantly in the final third where you spoke almost without pause.</p>
+          <p style="font-size:12px;color:#8b89aa;font-style:italic;margin:0 0 10px;line-height:1.5;">💭 When you're on a roll building an argument, do you notice when others stop engaging?</p>
+          <div style="font-size:11.5px;color:#4a4d6a;">Does this resonate?
+            <span style="display:inline-flex;gap:6px;margin-left:8px;">
+              <span style="padding:2px 10px;border:1px solid #1a2035;border-radius:20px;color:#8b89aa;font-size:11px;">Yes</span>
+              <span style="padding:2px 10px;border:1px solid #1a2035;border-radius:20px;color:#8b89aa;font-size:11px;">Somewhat</span>
+              <span style="padding:2px 10px;border:1px solid #1a2035;border-radius:20px;color:#8b89aa;font-size:11px;">No</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom -->
+  <div style="text-align:center;padding:10px 0 0;">
+    <span style="font-size:12px;color:#2a3050;">Auto-detected context type · Context-specific population norms applied · Resonance feedback calibrates future insights</span>
+  </div>
+</div><!-- end slide 2 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 3 — Behavioral dimensions
+═══════════════════════════════════════════════════════════════════ -->
+<div class="slide-label">Slide 3 / 5 — Behavioral dimensions</div>
+<div class="slide" id="s3">
+  <div class="blob1"></div><div class="blob2"></div>
+
+  <div class="slide-header">
+    <div class="mirror-logo">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="hg3" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+        <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#hg3)" opacity=".4"/>
+        <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#hg3)" opacity=".65"/>
+        <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#hg3)"/>
+        <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#hg3)" opacity=".65"/>
+        <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#hg3)" opacity=".4"/>
+        <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+        <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#hg3)" opacity=".18"/>
+        <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#hg3)" opacity=".3"/>
+        <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hg3)" opacity=".38"/>
+        <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#hg3)" opacity=".3"/>
+        <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#hg3)" opacity=".18"/>
+      </svg>
+      <span class="mirror-logo-text">mirror<span>.</span></span>
+    </div>
+    <span class="slide-counter">3 / 5</span>
+  </div>
+
+  <!-- Headline -->
+  <div style="text-align:center;padding:16px 40px 12px;">
+    <div style="font-size:26px;font-weight:800;letter-spacing:-0.4px;color:#f0eeff;line-height:1.2;">
+      Your behavioral fingerprint, <span class="grad">across every dimension.</span>
+    </div>
+    <div style="font-size:13px;color:#8b89aa;margin-top:6px;">
+      Emotional state · Relational dynamics · Communication effectiveness · Conversation arc
+    </div>
+  </div>
+
+  <!-- Three dimension columns -->
+  <div style="display:flex;gap:12px;padding:0 36px;height:530px;">
+
+    <!-- Col 1: Emotional State -->
+    <div style="flex:1;background:#0d1220;border:1px solid #1a2035;border-radius:14px;padding:20px 18px;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
+        <span style="font-size:18px;">🧠</span>
+        <span style="font-size:14px;font-weight:700;color:#f0eeff;">Emotional State</span>
+      </div>
+
+      <div class="score-row"><span class="score-label">Confidence</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">High</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Nervousness</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c2"></div><div class="seg c2"></div><div class="seg c0"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#fb923c;">Low</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Emotional Intensity</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Topic Comfort</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">High</span>
+        </div>
+      </div>
+      <div class="score-row" style="margin-bottom:0"><span class="score-label">Enthusiasm</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+
+      <div style="flex:1;margin-top:18px;padding-top:14px;border-top:1px solid #131827;">
+        <p style="font-size:12px;color:#8b89aa;line-height:1.7;">Your baseline confidence remained consistently high — no significant dip even during the pushback moments. Nervousness stayed low throughout, suggesting genuine subject matter comfort.</p>
+      </div>
+    </div>
+
+    <!-- Col 2: Relational Dynamics -->
+    <div style="flex:1;background:#0d1220;border:1px solid #1a2035;border-radius:14px;padding:20px 18px;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
+        <span style="font-size:18px;">🤝</span>
+        <span style="font-size:14px;font-weight:700;color:#f0eeff;">Relational Dynamics</span>
+      </div>
+
+      <div class="score-row"><span class="score-label">Rapport</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">Strong</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Power Balance</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Slightly dominant</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Empathy</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Conversational Respect</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">High</span>
+        </div>
+      </div>
+      <div class="score-row" style="margin-bottom:0"><span class="score-label">Mutual Engagement</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+
+      <div style="flex:1;margin-top:18px;padding-top:14px;border-top:1px solid #131827;">
+        <p style="font-size:12px;color:#8b89aa;line-height:1.7;">You navigated a mild power differential effectively — assertive without dominating early. The drop in mutual engagement in the final third tracks with the talk-ratio shift the signals detected.</p>
+      </div>
+    </div>
+
+    <!-- Col 3: Communication Effectiveness -->
+    <div style="flex:1;background:#0d1220;border:1px solid #1a2035;border-radius:14px;padding:20px 18px;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:18px;">
+        <span style="font-size:18px;">💬</span>
+        <span style="font-size:14px;font-weight:700;color:#f0eeff;">Communication Effectiveness</span>
+      </div>
+
+      <div class="score-row"><span class="score-label">Clarity</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">Strong</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Assertiveness</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c4"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#34d399;">Strong</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Listening Quality</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Needs attention</span>
+        </div>
+      </div>
+      <div class="score-row"><span class="score-label">Persuasiveness</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+      <div class="score-row" style="margin-bottom:0"><span class="score-label">Adaptability</span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;">
+          <div class="score-bars"><div class="seg c3"></div><div class="seg c3"></div><div class="seg c3"></div><div class="seg c0"></div><div class="seg c0"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#f59e0b;">Moderate</span>
+        </div>
+      </div>
+
+      <div style="flex:1;margin-top:18px;padding-top:14px;border-top:1px solid #131827;">
+        <p style="font-size:12px;color:#8b89aa;line-height:1.7;">Clarity is your consistent strength here. Listening Quality is where the largest gap appeared — the data suggests your responses were quick but not always reactive to what was just said.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Conversation arc strip -->
+  <div style="margin:12px 36px 0;background:#0d1220;border:1px solid #1a2035;border-radius:10px;padding:14px 20px;display:flex;gap:0;align-items:center;">
+    <div style="font-size:10px;font-weight:700;color:#4a4d6a;text-transform:uppercase;letter-spacing:0.8px;flex:0 0 140px;">Conversation Arc</div>
+    <div style="display:flex;flex:1;gap:0;">
+      <div style="flex:1;text-align:center;border-right:1px solid #131827;">
+        <div style="font-size:10px;color:#4a4d6a;margin-bottom:3px;">Opening vs Closing</div>
+        <div style="font-size:13px;font-weight:600;color:#f0eeff;">Stronger close</div>
+      </div>
+      <div style="flex:1;text-align:center;border-right:1px solid #131827;">
+        <div style="font-size:10px;color:#4a4d6a;margin-bottom:3px;">Tension</div>
+        <div style="font-size:13px;font-weight:600;color:#f59e0b;">Moderate</div>
+      </div>
+      <div style="flex:1;text-align:center;border-right:1px solid #131827;">
+        <div style="font-size:10px;color:#4a4d6a;margin-bottom:3px;">Who Drove</div>
+        <div style="font-size:13px;font-weight:600;color:#5b9cf6;">You</div>
+      </div>
+      <div style="flex:1;text-align:center;">
+        <div style="font-size:10px;color:#4a4d6a;margin-bottom:3px;">Resolution</div>
+        <div style="font-size:13px;font-weight:600;color:#f59e0b;">Partial</div>
+      </div>
+    </div>
+  </div>
+</div><!-- end slide 3 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 4 — Profile + Mirror Feed
+═══════════════════════════════════════════════════════════════════ -->
+<div class="slide-label">Slide 4 / 5 — Profile &amp; Mirror Feed</div>
+<div class="slide" id="s4">
+  <div class="blob1"></div><div class="blob2"></div>
+
+  <div class="slide-header">
+    <div class="mirror-logo">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="hg4" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+        <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#hg4)" opacity=".4"/>
+        <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#hg4)" opacity=".65"/>
+        <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#hg4)"/>
+        <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#hg4)" opacity=".65"/>
+        <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#hg4)" opacity=".4"/>
+        <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+        <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#hg4)" opacity=".18"/>
+        <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#hg4)" opacity=".3"/>
+        <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hg4)" opacity=".38"/>
+        <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#hg4)" opacity=".3"/>
+        <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#hg4)" opacity=".18"/>
+      </svg>
+      <span class="mirror-logo-text">mirror<span>.</span></span>
+    </div>
+    <span class="slide-counter">4 / 5</span>
+  </div>
+
+  <!-- Headline -->
+  <div style="text-align:center;padding:16px 40px 12px;">
+    <div style="font-size:26px;font-weight:800;letter-spacing:-0.4px;color:#f0eeff;line-height:1.2;">
+      The more you use it, <span class="grad">the sharper it gets.</span>
+    </div>
+    <div style="font-size:13px;color:#8b89aa;margin-top:6px;">
+      Your mirror builds a behavioral profile from every conversation — across contexts, over time.
+    </div>
+  </div>
+
+  <!-- Two-column layout -->
+  <div style="display:flex;gap:16px;padding:0 36px;height:560px;">
+
+    <!-- LEFT: Mirror Feed -->
+    <div style="flex:0 0 620px;display:flex;flex-direction:column;gap:12px;">
+
+      <!-- Completeness -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:#f0eeff;">Profile completeness</div>
+            <div style="font-size:12px;color:#8b89aa;margin-top:2px;">7 sessions · 3 contexts</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:22px;font-weight:800;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">68%</div>
+            <div style="font-size:11px;color:#8b89aa;">Developing</div>
+          </div>
+        </div>
+        <div style="height:5px;background:#131827;border-radius:3px;overflow:hidden;">
+          <div style="width:68%;height:100%;background:linear-gradient(135deg,#1d4ed8,#0891b2);border-radius:3px;"></div>
+        </div>
+      </div>
+
+      <!-- Mirror Feed -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;flex:1;overflow:hidden;">
+        <div style="padding:14px 18px;border-bottom:1px solid #131827;">
+          <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">YOUR MIRROR FEED</div>
+        </div>
+
+        <!-- Feed item 1: context contrast -->
+        <div style="padding:14px 18px;border-bottom:1px solid #131827;display:flex;gap:13px;align-items:flex-start;">
+          <div class="feed-icon" style="background:rgba(129,140,248,0.12);border:1px solid rgba(129,140,248,0.25);color:#818cf8;">↕</div>
+          <div style="flex:1;">
+            <div style="font-size:10px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Context contrast</div>
+            <div style="font-size:13px;color:#f0eeff;line-height:1.65;">You're significantly more assertive in evaluative contexts — your speech rate jumps 22 wpm and your filler rate drops by half when you know you're being assessed.</div>
+          </div>
+        </div>
+
+        <!-- Feed item 2: trend up -->
+        <div style="padding:14px 18px;border-bottom:1px solid #131827;display:flex;gap:13px;align-items:flex-start;">
+          <div class="feed-icon" style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.25);color:#34d399;">↑</div>
+          <div style="flex:1;">
+            <div style="font-size:10px;font-weight:700;color:#34d399;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Improving</div>
+            <div style="font-size:13px;color:#f0eeff;line-height:1.65;">Your filler rate has dropped 36% over your last four sessions — from 7.8 to 5.0 per 100 words. That's a measurable shift, not noise.</div>
+          </div>
+        </div>
+
+        <!-- Feed item 3: pattern -->
+        <div style="padding:14px 18px;display:flex;gap:13px;align-items:flex-start;">
+          <div class="feed-icon" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b;">●</div>
+          <div style="flex:1;">
+            <div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px;">Consistent pattern</div>
+            <div style="font-size:13px;color:#f0eeff;line-height:1.65;">You consistently dominate the final third of collaborative sessions. The pattern is stable across 5 recordings — this is your default when the agenda runs long.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Trend chart + blind spots -->
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px;">
+
+      <!-- Trend chart -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:18px 18px 14px;flex:0 0 auto;">
+        <div style="font-size:11px;font-weight:600;color:#8b89aa;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.5px;">Filler Rate Trend — last 7 sessions</div>
+        <svg width="100%" height="110" viewBox="0 0 360 110" fill="none" preserveAspectRatio="none" style="display:block;">
+          <defs>
+            <linearGradient id="linegrad" x1="0" y1="0" x2="360" y2="0">
+              <stop stop-color="#1d4ed8"/>
+              <stop offset="1" stop-color="#0891b2"/>
+            </linearGradient>
+            <linearGradient id="fillgrad" x1="0" y1="0" x2="0" y2="110">
+              <stop stop-color="#1d4ed8" stop-opacity="0.2"/>
+              <stop offset="1" stop-color="#1d4ed8" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <!-- Grid lines -->
+          <line x1="0" y1="20" x2="360" y2="20" stroke="#1a2035" stroke-width="1"/>
+          <line x1="0" y1="55" x2="360" y2="55" stroke="#1a2035" stroke-width="1"/>
+          <line x1="0" y1="90" x2="360" y2="90" stroke="#1a2035" stroke-width="1"/>
+          <!-- Y labels -->
+          <text x="0" y="18" fill="#4a4d6a" font-size="9" font-family="Inter,system-ui">10</text>
+          <text x="0" y="53" fill="#4a4d6a" font-size="9" font-family="Inter,system-ui">5</text>
+          <text x="0" y="88" fill="#4a4d6a" font-size="9" font-family="Inter,system-ui">0</text>
+          <!-- Area fill -->
+          <path d="M18 30 L78 38 L138 42 L198 28 L258 48 L310 38 L342 18 L342 90 L18 90 Z" fill="url(#fillgrad)"/>
+          <!-- Line: starts high (7.8), generally trending down to 5.0, with some noise -->
+          <polyline points="18,30 78,38 138,42 198,28 258,48 310,38 342,18" stroke="url(#linegrad)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Dots -->
+          <circle cx="18"  cy="30" r="3.5" fill="#1d4ed8"/>
+          <circle cx="78"  cy="38" r="3.5" fill="#1d4ed8"/>
+          <circle cx="138" cy="42" r="3.5" fill="#1d4ed8"/>
+          <circle cx="198" cy="28" r="3.5" fill="#1d4ed8"/>
+          <circle cx="258" cy="48" r="3.5" fill="#1d4ed8"/>
+          <circle cx="310" cy="38" r="3.5" fill="#0891b2"/>
+          <circle cx="342" cy="18" r="4" fill="#0891b2" stroke="#f0eeff" stroke-width="1.5"/>
+          <!-- Latest label -->
+          <text x="330" y="13" fill="#0891b2" font-size="9.5" font-weight="700" font-family="Inter,system-ui">5.0</text>
+          <!-- First label -->
+          <text x="22" y="26" fill="#8b89aa" font-size="9.5" font-family="Inter,system-ui">7.8</text>
+          <!-- X labels -->
+          <text x="10"  y="106" fill="#4a4d6a" font-size="8.5" font-family="Inter,system-ui">May 12</text>
+          <text x="130" y="106" fill="#4a4d6a" font-size="8.5" font-family="Inter,system-ui">May 28</text>
+          <text x="318" y="106" fill="#4a4d6a" font-size="8.5" font-family="Inter,system-ui">Jun 16</text>
+        </svg>
+        <div style="margin-top:8px;font-size:11.5px;color:#34d399;font-weight:500;">↓ 36% improvement over 7 sessions</div>
+      </div>
+
+      <!-- Personality summary -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:16px 18px;flex:1;">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:10px;">YOUR COMMUNICATION STYLE</div>
+        <p style="font-size:12.5px;color:#c4c2d8;line-height:1.75;margin-bottom:12px;">A confident and structured communicator who drives clarity in collaborative settings. Your assertiveness is a reliable strength — you frame tradeoffs precisely and hold positions under pressure. Listening depth is the gap the data keeps surfacing.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span class="pill" style="background:rgba(52,211,153,0.08);color:#34d399;border:1px solid rgba(52,211,153,0.2);font-size:11px;">✓ Clarity</span>
+          <span class="pill" style="background:rgba(52,211,153,0.08);color:#34d399;border:1px solid rgba(52,211,153,0.2);font-size:11px;">✓ Assertiveness</span>
+          <span class="pill" style="background:rgba(245,158,11,0.08);color:#f59e0b;border:1px solid rgba(245,158,11,0.2);font-size:11px;">△ Listening depth</span>
+        </div>
+      </div>
+
+      <!-- Blind spots -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:14px 18px;">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#4a4d6a;margin-bottom:10px;">BLIND SPOTS — UNSEEN CONTEXTS</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <span class="pill" style="background:#0a0d18;color:#4a4d6a;border:1px solid #1a2035;font-size:11px;">Adversarial</span>
+          <span class="pill" style="background:#0a0d18;color:#4a4d6a;border:1px solid #1a2035;font-size:11px;">Negotiation</span>
+          <span class="pill" style="background:#0a0d18;color:#4a4d6a;border:1px solid #1a2035;font-size:11px;">Supportive</span>
+        </div>
+        <div style="font-size:11px;color:#2a3050;margin-top:8px;">Upload conversations in these contexts to complete your mirror.</div>
+      </div>
+    </div>
+  </div>
+</div><!-- end slide 4 -->
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SLIDE 5 — Coaching
+═══════════════════════════════════════════════════════════════════ -->
+<div class="slide-label">Slide 5 / 5 — Personalized coaching</div>
+<div class="slide" id="s5">
+  <div class="blob1"></div><div class="blob2"></div>
+
+  <div class="slide-header">
+    <div class="mirror-logo">
+      <svg width="21" height="21" viewBox="0 0 32 32" fill="none">
+        <defs><linearGradient id="hg5" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#1d4ed8"/><stop offset="1" stop-color="#0891b2"/></linearGradient></defs>
+        <rect x="2" y="12" width="4" height="4" rx="2" fill="url(#hg5)" opacity=".4"/>
+        <rect x="8" y="8" width="4" height="8" rx="2" fill="url(#hg5)" opacity=".65"/>
+        <rect x="14" y="4" width="4" height="12" rx="2" fill="url(#hg5)"/>
+        <rect x="20" y="8" width="4" height="8" rx="2" fill="url(#hg5)" opacity=".65"/>
+        <rect x="26" y="12" width="4" height="4" rx="2" fill="url(#hg5)" opacity=".4"/>
+        <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" stroke-width="1"/>
+        <rect x="2" y="18" width="4" height="4" rx="2" fill="url(#hg5)" opacity=".18"/>
+        <rect x="8" y="18" width="4" height="8" rx="2" fill="url(#hg5)" opacity=".3"/>
+        <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hg5)" opacity=".38"/>
+        <rect x="20" y="18" width="4" height="8" rx="2" fill="url(#hg5)" opacity=".3"/>
+        <rect x="26" y="18" width="4" height="4" rx="2" fill="url(#hg5)" opacity=".18"/>
+      </svg>
+      <span class="mirror-logo-text">mirror<span>.</span></span>
+    </div>
+    <span class="slide-counter">5 / 5</span>
+  </div>
+
+  <!-- Headline -->
+  <div style="text-align:center;padding:16px 40px 12px;">
+    <div style="font-size:26px;font-weight:800;letter-spacing:-0.4px;color:#f0eeff;line-height:1.2;">
+      Personalized coaching. <span class="grad">Built from your behavior, not templates.</span>
+    </div>
+    <div style="font-size:13px;color:#8b89aa;margin-top:6px;">
+      Specific, ranked, and calibrated by your resonance feedback across sessions.
+    </div>
+  </div>
+
+  <!-- Two-column layout -->
+  <div style="display:flex;gap:16px;padding:0 36px;height:564px;">
+
+    <!-- LEFT: 2 coaching cards -->
+    <div style="flex:0 0 680px;display:flex;flex-direction:column;gap:12px;">
+
+      <!-- Card 1 -->
+      <div class="coach-card" style="border-left:3px solid #f87171;flex:1;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:10px;font-weight:800;color:#f87171;text-transform:uppercase;letter-spacing:0.6px;background:rgba(248,113,113,0.1);padding:3px 9px;border-radius:20px;border:1px solid rgba(248,113,113,0.25);">#1 — Listening Quality</span>
+        </div>
+        <p style="font-size:12.5px;color:#8b89aa;font-style:italic;line-height:1.6;margin-bottom:13px;">
+          You occupied 54% of airtime in a session where the stated purpose was to gather feedback — the ratio effectively inverted the room.
+        </p>
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:13px;">
+          <span style="font-size:16px;flex-shrink:0;margin-top:1px;">💡</span>
+          <p style="font-size:13.5px;color:#f0eeff;line-height:1.7;font-weight:500;">
+            Try a hard cut at 50%: when you notice you've been speaking for more than two minutes straight, ask an open question before you say another sentence.
+          </p>
+        </div>
+        <div style="background:#090d1c;border-radius:9px;padding:12px 14px;">
+          <span style="font-size:12px;color:#f0eeff;font-weight:600;">Why it matters: </span>
+          <span style="font-size:12px;color:#8b89aa;line-height:1.6;">In feedback conversations, the other person's observations are the data. If you talk more than them, you're generating noise, not signal.</span>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="coach-card" style="border-left:3px solid #f59e0b;flex:1;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:10px;font-weight:800;color:#f59e0b;text-transform:uppercase;letter-spacing:0.6px;background:rgba(245,158,11,0.1);padding:3px 9px;border-radius:20px;border:1px solid rgba(245,158,11,0.25);">#2 — Filler Words</span>
+        </div>
+        <p style="font-size:12.5px;color:#8b89aa;font-style:italic;line-height:1.6;margin-bottom:13px;">
+          3.2 fillers per 100 words — above the collaborative norm, and the pattern isn't random. They cluster in your longer turns when you're mid-argument.
+        </p>
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:13px;">
+          <span style="font-size:16px;flex-shrink:0;margin-top:1px;">💡</span>
+          <p style="font-size:13.5px;color:#f0eeff;line-height:1.7;font-weight:500;">
+            Before your next working session: practice saying nothing. A 1.5-second pause is always received better than "um" — it reads as consideration, not uncertainty.
+          </p>
+        </div>
+        <div style="background:#090d1c;border-radius:9px;padding:12px 14px;">
+          <span style="font-size:12px;color:#f0eeff;font-weight:600;">Why it matters: </span>
+          <span style="font-size:12px;color:#8b89aa;line-height:1.6;">Fillers in mid-argument undermine the point you're making. The pause that replaces them reinforces it — silence signals you're choosing your words.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Context + stats -->
+    <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+
+      <!-- Recurring coaching -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:18px 18px;">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#4a4d6a;margin-bottom:12px;">RECURRING AREAS</div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:13px;color:#f0eeff;font-weight:600;">Listening Quality</span>
+            <span style="font-size:11px;color:#f87171;font-weight:700;">5 of 7 sessions</span>
+          </div>
+          <div style="height:4px;background:#131827;border-radius:2px;overflow:hidden;"><div style="width:71%;height:100%;background:#f87171;border-radius:2px;"></div></div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:13px;color:#f0eeff;font-weight:600;">Talk Balance</span>
+            <span style="font-size:11px;color:#fb923c;font-weight:700;">4 of 7 sessions</span>
+          </div>
+          <div style="height:4px;background:#131827;border-radius:2px;overflow:hidden;"><div style="width:57%;height:100%;background:#fb923c;border-radius:2px;"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:13px;color:#f0eeff;font-weight:600;">Filler Words</span>
+            <span style="font-size:11px;color:#818cf8;font-weight:700;">3 of 7 sessions</span>
+          </div>
+          <div style="height:4px;background:#131827;border-radius:2px;overflow:hidden;"><div style="width:43%;height:100%;background:#818cf8;border-radius:2px;"></div></div>
+        </div>
+      </div>
+
+      <!-- Session delta -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:16px 18px;">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#4a4d6a;margin-bottom:12px;">SINCE LAST SESSION</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">
+          <span style="font-size:16px;color:#34d399;font-weight:700;">↑</span>
+          <div>
+            <div style="font-size:13px;color:#f0eeff;font-weight:600;">Confidence +12</div>
+            <div style="font-size:11px;color:#8b89aa;">from 3 → 4</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:16px;color:#34d399;font-weight:700;">↑</span>
+          <div>
+            <div style="font-size:13px;color:#f0eeff;font-weight:600;">Adaptability +9</div>
+            <div style="font-size:11px;color:#8b89aa;">from 2 → 3</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session stats -->
+      <div style="background:#0d1220;border:1px solid #1a2035;border-radius:12px;padding:16px 18px;">
+        <div style="font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#4a4d6a;margin-bottom:12px;">THIS ANALYSIS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <div style="font-size:20px;font-weight:800;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">7</div>
+            <div style="font-size:11px;color:#8b89aa;margin-top:2px;">sessions analyzed</div>
+          </div>
+          <div>
+            <div style="font-size:20px;font-weight:800;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">42</div>
+            <div style="font-size:11px;color:#8b89aa;margin-top:2px;">signals extracted</div>
+          </div>
+          <div>
+            <div style="font-size:20px;font-weight:800;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">3</div>
+            <div style="font-size:11px;color:#8b89aa;margin-top:2px;">contexts covered</div>
+          </div>
+          <div>
+            <div style="font-size:20px;font-weight:800;background:linear-gradient(135deg,#1d4ed8,#0891b2);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">15</div>
+            <div style="font-size:11px;color:#8b89aa;margin-top:2px;">resonance votes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resonance note -->
+      <div style="background:rgba(29,78,216,0.05);border:1px solid rgba(29,78,216,0.15);border-radius:10px;padding:12px 14px;">
+        <p style="font-size:12px;color:#8b89aa;line-height:1.65;">Coaching is generated fresh from every session and refined by your resonance feedback — so the insights get more accurate the more you use it.</p>
+      </div>
+    </div>
+  </div>
+</div><!-- end slide 5 -->
+
+</body>
+</html>

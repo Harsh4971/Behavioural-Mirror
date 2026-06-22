@@ -70,6 +70,29 @@ _jobs: dict = {}
 # Cancelled sessions — background threads check this and bail early
 _cancelled: set = set()
 
+# Per-job watchdog timers — cancelled when job completes normally
+_job_timers: dict = {}
+_JOB_TIMEOUT_S = 15 * 60  # 15 minutes
+
+
+def _start_job_timeout(job_key: str, cancel_id: str):
+    """After _JOB_TIMEOUT_S, inject cancel_id into _cancelled if the job is still running."""
+    def _expire():
+        if job_key in _jobs:
+            logger.warning("[timeout] Job %s timed out after %ds — cancelling", job_key[:12], _JOB_TIMEOUT_S)
+            _cancelled.add(cancel_id)
+        _job_timers.pop(job_key, None)
+    t = threading.Timer(_JOB_TIMEOUT_S, _expire)
+    t.daemon = True
+    t.start()
+    _job_timers[job_key] = t
+
+
+def _cancel_job_timeout(job_key: str):
+    t = _job_timers.pop(job_key, None)
+    if t:
+        t.cancel()
+
 
 def _sid(session_id: str) -> str:
     return session_id[:8]
@@ -590,6 +613,7 @@ async def start_prepare_session(
         args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline),
         daemon=True
     ).start()
+    _start_job_timeout(session_id, session_id)
 
     print(f"[{_sid(session_id)}] ▶ Upload received — starting analysis")
     return {"job_id": session_id}
@@ -658,6 +682,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
     try:
         if session_id in _cancelled:
             _cancelled.discard(session_id)
+            _cancel_job_timeout(session_id)
             logger.info("[%s] ✕ Cancelled before start", _sid(session_id))
             return
 
@@ -717,6 +742,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
+            _cancel_job_timeout(session_id)
             if os.path.exists(audio_path): os.remove(audio_path)
             logger.info("[%s] ✕ Cancelled after transcription", _sid(session_id))
             return
@@ -831,12 +857,14 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             "voiceprint_confidence": voiceprint_confidence,
         }
 
+        _cancel_job_timeout(session_id)
         if session_id in _jobs:
             _jobs[session_id].put({"event": "done", "data": result_data})
         logger.info("[%s] ✓ Prepare done — detected_speaker: %s", _sid(session_id), detected_speaker)
 
     except Exception as e:
         import traceback
+        _cancel_job_timeout(session_id)
         if os.path.exists(audio_path):
             os.remove(audio_path)
         logger.error("[%s] ✕ Prepare error: %s\n%s", _sid(session_id), e, traceback.format_exc())
@@ -917,6 +945,7 @@ async def start_finalize_session(
         args=(session_id, confirmed_speaker),
         daemon=True
     ).start()
+    _start_job_timeout(f"finalize_{session_id}", session_id)
 
     logger.info("[%s] ▶ Speaker confirmed (%s) — starting finalize job", _sid(session_id), confirmed_speaker)
     return {"job_id": session_id}
@@ -947,6 +976,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
     try:
         if session_id in _cancelled:
             _cancelled.discard(session_id)
+            _cancel_job_timeout(f"finalize_{session_id}")
             logger.info("[%s] ✕ Cancelled before finalize", _sid(session_id))
             return
 
@@ -1023,6 +1053,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
+            _cancel_job_timeout(f"finalize_{session_id}")
             if os.path.exists(audio_path):
                 os.remove(audio_path)
             logger.info("[%s] ✕ Cancelled after signal extraction", _sid(session_id))
@@ -1113,10 +1144,12 @@ def _run_finalize_job(session_id, confirmed_speaker):
             "voiceprint_confidence": voiceprint_confidence,
         }
 
+        _cancel_job_timeout(job_key)
         if job_key in _jobs:
             _jobs[job_key].put({"event": "done", "data": result_data})
 
     except Exception as e:
+        _cancel_job_timeout(job_key)
         if os.path.exists(audio_path):
             os.remove(audio_path)
         _prepare_cache.pop(session_id, None)
@@ -1248,17 +1281,23 @@ async def reanalyze_session(
 # ── Session history ───────────────────────────────────────────────
 
 @app.get("/api/sessions")
-def get_sessions(user_id: str = Depends(get_current_user)):
-    res = supabase_admin.table("sessions").select("*").eq(
-        "user_id", user_id
-    ).order("created_at", desc=True).execute()
+def get_sessions(
+    user_id: str = Depends(get_current_user),
+    page: int = 0,
+    page_size: int = 10,
+):
+    page_size = min(max(page_size, 1), 50)
+    offset = page * page_size
 
+    res = supabase_admin.table("sessions").select("*", count="exact").eq(
+        "user_id", user_id
+    ).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+
+    total = res.count or 0
     out = []
     for s in res.data:
         try:
             all_sp = json.loads(s["all_speakers_signals_json"]) if s.get("all_speakers_signals_json") else {}
-            # Build a compact per-speaker timeline for the history chart.
-            # Each speaker contributes their 60-second window timeline (wpm + speaking_time).
             speakers_timeline = {}
             for sp_id, sp_signals in all_sp.items():
                 tl = sp_signals.get("timeline")
@@ -1280,7 +1319,7 @@ def get_sessions(user_id: str = Depends(get_current_user)):
             })
         except Exception as e:
             print(f"[sessions] Skipping malformed session {s.get('id', '?')}: {e}")
-    return out
+    return {"sessions": out, "total": total, "has_more": (offset + page_size) < total}
 
 
 @app.get("/api/trends")

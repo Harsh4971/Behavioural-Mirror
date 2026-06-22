@@ -1,0 +1,163 @@
+═══════════════════════════════════════════════════════════════
+  MIRROR: VOICE INSIGHTS — Chrome Web Store Listing Copy
+═══════════════════════════════════════════════════════════════
+
+
+─── EXTENSION NAME ────────────────────────────────────────────
+Mirror: Voice Insights
+
+
+─── SHORT DESCRIPTION (max 132 chars) ─────────────────────────
+AI communication coach for Google Meet. Analyze talk ratio, filler words, speech rate, and 15+ behavioral signals from every call.
+
+(131 characters — within limit)
+
+
+─── CATEGORY ──────────────────────────────────────────────────
+Productivity
+
+
+─── DETAILED DESCRIPTION ──────────────────────────────────────
+
+Mirror turns your Google Meet calls into behavioral data — and behavioral data into coaching.
+
+After every meeting, you'll see exactly how you showed up: how much you spoke, how fast, how many filler words you used, when you interrupted, how long you waited before responding, whether you asked questions, and whether your energy rose or fell. Then the AI builds a behavioral profile across every call, so the coaching gets sharper every session.
+
+
+HOW IT WORKS
+
+→ Open Mirror's side panel during any Google Meet call
+→ Click Record — Mirror captures audio directly from your browser tab, no installs, no extras
+→ Stop recording when the meeting ends (or any time you want)
+→ Mirror transcribes, diarizes, and analyzes the audio in under two minutes
+→ Read your insights in the panel while the meeting is still fresh
+
+
+WHAT MIRROR ANALYZES
+
+Talk ratio — how much of the conversation was yours, broken into you / others / silence
+
+Speech rate — words per minute, and whether you accelerated or slowed through the session
+
+Filler words — rate per 100 words, and whether the pattern is random or clustered
+
+Interruptions — both given and received
+
+Response latency — how long you wait before speaking after someone else finishes
+
+Vocabulary richness — lexical diversity across your turns
+
+Questions asked — count and pattern
+
+Vocal energy — whether your energy rose, held, or declined through the call
+
+Monologue length — your longest unbroken turn
+
+...and more
+
+
+BEHAVIORAL DIMENSIONS
+
+Each session is scored across three groups:
+
+Emotional State — confidence, nervousness, emotional intensity, topic comfort, enthusiasm
+
+Relational Dynamics — rapport, power balance, empathy, conversational respect, mutual engagement
+
+Communication Effectiveness — clarity, assertiveness, listening quality, persuasiveness, adaptability
+
+Conversation Arc — who drove the session, tension level, how it opened vs. closed, whether there was a turning point
+
+
+YOUR MIRROR PROFILE
+
+Mirror builds a behavioral profile that grows with every session:
+
+• Context detection: Mirror auto-identifies the type of conversation (evaluative, collaborative, influential, negotiation, adversarial, supportive, and more) and applies the right benchmarks
+• Cross-session insights: The Mirror Feed surfaces patterns the data keeps seeing across calls — things you'd never notice from a single session
+• Trend tracking: See how your filler rate, talk ratio, and speech rate are moving over time
+• Personality synthesis: An AI summary of your communication style, updated session by session
+• Blind spots: Conversation contexts you haven't recorded yet, so you know where your mirror is incomplete
+• Recurring coaching: The areas that keep appearing across sessions, ranked by frequency
+
+
+PERSONALIZED COACHING
+
+After every session, Mirror generates ranked coaching suggestions grounded in what the transcript actually showed — not generic advice. You can tell Mirror whether each observation resonated with you (yes / somewhat / no), and future insights are calibrated to avoid noise and focus on what's real for you.
+
+
+PRIVACY — YOUR AUDIO IS NEVER STORED
+
+Audio is written to temporary processing storage only during analysis, then permanently deleted the moment results are ready. Mirror never stores, retains, or sells your recordings.
+
+What is stored (in your account): transcripts, analysis results, behavioral scores, and insights. You own your data and can delete everything at any time from the extension.
+
+See the full privacy policy at mirrorai.live/privacy
+
+
+VOICE ENROLLMENT (OPTIONAL)
+
+For uploaded recordings with multiple speakers, Mirror can identify which voice is yours using a voice embedding trained from a 30-second sample. This is entirely optional, skippable, and deletable. The embedding is a mathematical representation — not a recording.
+
+
+USAGE
+
+• 15 analysis sessions per month (free)
+• Works on Google Meet only (side panel auto-activates on meet.google.com)
+• Audio files must be under 20 minutes
+• You can also upload recordings directly from the Upload tab (Zoom, phone calls, in-person recordings)
+
+
+GET STARTED
+
+1. Install Mirror and open any Google Meet call
+2. Click the Mirror icon in your toolbar to open the side panel
+3. Complete a 30-second voice training (optional but recommended)
+4. Click Record
+5. After the call, click Stop and wait ~90 seconds for your analysis
+
+
+─── PROMOTIONAL TILE TAGLINE (for 440×280 / 920×680 tile) ────
+Mirror: Voice Insights
+AI behavioral analysis for every Google Meet call.
+
+
+─── SCREENSHOT CAPTIONS (1–5 in order) ────────────────────────
+
+Screenshot 1:
+"Works inside Google Meet. One click to record — Mirror captures, analyzes, and coaches automatically."
+
+Screenshot 2:
+"15+ behavioral signals extracted from every conversation — talk ratio, speech rate, filler words, interruptions, and more."
+
+Screenshot 3:
+"Your behavioral fingerprint scored across emotional, relational, and communicative dimensions."
+
+Screenshot 4:
+"The more you use it, the sharper it gets. Cross-session insights, trend tracking, and a profile that builds over time."
+
+Screenshot 5:
+"Personalized coaching from your actual behavior — specific, ranked, and calibrated by your feedback."
+
+
+─── KEYWORDS (for discoverability) ────────────────────────────
+Google Meet, communication coach, AI meeting analysis, talk ratio, filler words, speech analytics, behavioral insights, speaking habits, voice analysis, meeting productivity, communication skills, self-improvement, public speaking, presentation skills, interview prep
+
+
+═══════════════════════════════════════════════════════════════
+  NOTES ON CHROME WEB STORE SUBMISSION
+═══════════════════════════════════════════════════════════════
+
+• Screenshots: 1280×800 PNG (capture from screenshots.html)
+• Promotional images: 440×280 (small), 920×680 (large), 1400×560 (marquee) — can be scaled versions of slide 1
+• Icon: already have 128×128 at frontend/dist/icons/icon128.png
+• Category: Productivity
+• Language: English (United States)
+• Permissions justification (required in submission):
+    - storage: save auth token and session state locally
+    - identity: Supabase authentication
+    - activeTab: capture audio from the active Meet tab
+    - tabs: detect when user navigates to meet.google.com
+    - tabCapture: record audio from the browser tab
+    - offscreen: process audio in an offscreen document
+    - sidePanel: open Mirror's side panel inside Meet
