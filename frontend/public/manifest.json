@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Mirror: Voice Insights",
   "short_name": "Mirror",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "AI communication insights from Google Meet calls. Track filler words, talk ratio, speech pace, and 15+ behavioral signals over time.",
   "side_panel": {
     "default_path": "index.html"
