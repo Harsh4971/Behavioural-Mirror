@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Depends
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
 from typing import Optional
@@ -1667,6 +1668,73 @@ async def delete_account(user_id: str = Depends(get_current_user)):
     supabase_admin.table("user_voiceprints").delete().eq("user_id", user_id).execute()
     supabase_admin.auth.admin.delete_user(user_id)
     return {"status": "deleted"}
+
+
+# ── Feedback ──────────────────────────────────────────────────────
+
+class FeedbackPayload(BaseModel):
+    category: str
+    message: str
+
+@app.post("/api/feedback")
+async def submit_feedback(
+    payload: FeedbackPayload,
+    user_id: str = Depends(get_current_user),
+):
+    if not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Message is required.")
+
+    valid_categories = {"bug", "feature", "quality", "general"}
+    if payload.category not in valid_categories:
+        raise HTTPException(status_code=400, detail="Invalid category.")
+
+    # Save to Supabase
+    supabase_admin.table("feedback").insert({
+        "user_id": user_id,
+        "category": payload.category,
+        "message": payload.message.strip(),
+    }).execute()
+
+    # Email notification — only runs if RESEND_API_KEY is configured
+    resend_key = os.getenv("RESEND_API_KEY")
+    if resend_key:
+        try:
+            import resend
+            resend.api_key = resend_key
+
+            # Fetch user email for context
+            user_data = supabase_admin.auth.admin.get_user_by_id(user_id)
+            user_email = getattr(user_data.user, "email", "unknown")
+
+            category_labels = {
+                "bug": "Bug Report",
+                "feature": "Feature Request",
+                "quality": "Something Feels Off",
+                "general": "General Feedback",
+            }
+            label = category_labels.get(payload.category, payload.category)
+
+            resend.Emails.send({
+                "from": "Mirror Feedback <feedback@mirrorai.live>",
+                "to": ["harsh200415@gmail.com"],
+                "subject": f"Mirror Feedback — {label}",
+                "html": f"""
+                <div style="font-family:system-ui,sans-serif;max-width:560px;color:#111;">
+                  <h2 style="margin:0 0 4px;">New feedback: {label}</h2>
+                  <p style="color:#888;font-size:13px;margin:0 0 20px;">
+                    From {user_email} &nbsp;·&nbsp; {_utcnow()}
+                  </p>
+                  <div style="background:#f6f6f6;border-radius:8px;padding:16px 20px;
+                              font-size:15px;line-height:1.6;white-space:pre-wrap;">
+                    {payload.message.strip()}
+                  </div>
+                </div>
+                """,
+            })
+        except Exception as e:
+            logger.warning(f"Feedback email failed: {e}")
+
+    return {"status": "sent"}
 
 
 @app.post("/api/sessions/{session_id}/confirm-speaker")
