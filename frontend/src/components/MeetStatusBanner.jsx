@@ -160,6 +160,14 @@ export default function MeetStatusBanner({ onViewHistory }) {
     setRecordError(null)
     if (!meetTabId) { setRecordError('No Meet tab found'); return }
 
+    // tabcapture/pyannote fallback mode has been removed from the live path (CLAUDE.md rule
+    // #1 — no diarization/voiceprint guessing). The button is disabled until webrtcReady, but
+    // guard here too in case this is ever called some other way.
+    if (!webrtcReady) {
+      setRecordError('Still detecting meeting audio — please wait a moment and try again.')
+      return
+    }
+
     // Bootstrap mic permission before recording — the offscreen document that does the actual
     // mic recording can't show a permission prompt itself, and neither can this side panel
     // (getUserMedia's prompt only renders in a normal extension tab). ensureMicPermission opens
@@ -176,15 +184,13 @@ export default function MeetStatusBanner({ onViewHistory }) {
       return
     }
 
-    const recMode = webrtcReady ? "webrtc" : "tabcapture"
-
     const doStart = () => {
       // Background handles the stream ID — either from the pre-fetched cache
       // (set when user clicked the toolbar icon) or on-demand via host_permissions.
       chrome.runtime.sendMessage({
         action: "start_recording_with_stream",
         tabId: meetTabId,
-        mode: recMode,
+        mode: "webrtc",
         streamId: null,
       }, (res) => {
         if (chrome.runtime.lastError || res?.error) {
@@ -305,16 +311,16 @@ export default function MeetStatusBanner({ onViewHistory }) {
             </div>
 
             {!recording ? (
-              <button onClick={handleStartRecording} style={{
-                background: "linear-gradient(90deg, #1d4ed8, #0891b2)",
+              <button onClick={handleStartRecording} disabled={!webrtcReady} style={{
+                background: webrtcReady ? "linear-gradient(90deg, #1d4ed8, #0891b2)" : "#1e2438",
                 border: "none",
                 borderRadius: 8, padding: "7px 16px",
-                color: "#fff",
+                color: webrtcReady ? "#fff" : "#4a4865",
                 fontSize: 13, fontWeight: 600,
-                cursor: "pointer",
+                cursor: webrtcReady ? "pointer" : "not-allowed",
                 flexShrink: 0,
               }}>
-                Start Recording
+                {webrtcReady ? "Start Recording" : "Waiting for meeting audio…"}
               </button>
             ) : (
               <button onClick={handleStopRecording} style={{

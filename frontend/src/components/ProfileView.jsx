@@ -447,7 +447,7 @@ function SignalTrends({ chartData, trendLines }) {
 
 // ── Main ProfileView ──────────────────────────────────────────────
 
-export default function ProfileView({ active, onUpload }) {
+export default function ProfileView({ active }) {
   const [profile, setProfile] = useState(null)
   const [trends, setTrends] = useState([])
   const [loading, setLoading] = useState(true)
@@ -498,14 +498,8 @@ export default function ProfileView({ active, onUpload }) {
           Your mirror is waiting
         </h2>
         <p style={{ fontSize: 14, color: "#8b89aa", margin: "0 0 24px", lineHeight: 1.6 }}>
-          Upload your first conversation to see your behavioral profile.
+          Record your first Google Meet call to start building your profile.
         </p>
-        <button onClick={onUpload} className="btn-grad"
-          style={{ padding: "12px 28px", background: G, color: "white",
-            border: "none", borderRadius: 8, fontSize: 14, cursor: "pointer",
-            fontWeight: 600, boxShadow: "0 0 24px rgba(59,130,246,0.3)" }}>
-          Upload a conversation
-        </button>
       </div>
     )
   }
@@ -582,14 +576,6 @@ export default function ProfileView({ active, onUpload }) {
             </div>
           )}
         </div>
-
-        <button onClick={onUpload} className="btn-grad"
-          style={{ padding: "8px 18px", background: G, color: "white",
-            border: "none", borderRadius: 7, fontSize: 13, cursor: "pointer",
-            fontWeight: 600, boxShadow: "0 0 18px rgba(59,130,246,0.25)", flexShrink: 0,
-            marginLeft: 16 }}>
-          + Upload
-        </button>
       </div>
       </Reveal>
 

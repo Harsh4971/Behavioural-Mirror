@@ -3,8 +3,6 @@ import { supabase } from "./lib/supabase"
 import api from "./lib/api"
 import AuthView from "./components/AuthView"
 import OnboardingView from "./components/OnboardingView"
-import EnrollView from "./components/EnrollView"
-import UploadView from "./components/UploadView"
 import ResultsView from "./components/ResultsView"
 import HistoryView from "./components/HistoryView"
 import ProfileView from "./components/ProfileView"
@@ -30,15 +28,14 @@ export default function App() {
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [showReenroll, setShowReenroll] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
 
   // Each key tracks how many times we've navigated TO that view — re-mounting
   // the wrapper div causes the .view-enter animation to fire every tab switch.
-  const [viewKeys, setViewKeys] = useState({ profile: 0, upload: 0, history: 0 })
+  const [viewKeys, setViewKeys] = useState({ profile: 0, history: 0 })
 
   useEffect(() => {
-    if (view === "profile" || view === "upload" || view === "history") {
+    if (view === "profile" || view === "history") {
       setViewKeys(k => ({ ...k, [view]: k[view] + 1 }))
     }
   }, [view])
@@ -233,9 +230,6 @@ export default function App() {
                     { label: "How it works",
                       onClick: () => { setView("howItWorks"); setShowAccountMenu(false) },
                       color: "#f0eeff" },
-                    { label: "Train your voice",
-                      onClick: () => { setShowReenroll(true); setShowAccountMenu(false) },
-                      color: "#f0eeff" },
                     { label: "Send feedback",
                       onClick: () => { setShowFeedback(true); setShowAccountMenu(false) },
                       color: "#f0eeff" },
@@ -279,7 +273,6 @@ export default function App() {
         borderBottom: "1px solid #1e2438" }}>
         {[
           { key: "profile", label: "Profile" },
-          { key: "upload", label: "Upload" },
           { key: "history", label: "History" },
         ].map(({ key, label }) => (
           <button key={key} onClick={() => setView(key)}
@@ -293,30 +286,6 @@ export default function App() {
         ))}
       </nav>
 
-      {/* Re-enroll modal */}
-      {showReenroll && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-          zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#151922", border: "1px solid #1e2438",
-            borderRadius: 16, maxWidth: 500, width: "90%", maxHeight: "90vh",
-            overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.7)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between",
-              alignItems: "center", padding: "20px 24px 0" }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: "#f0eeff" }}>
-                Retrain your voice
-              </span>
-              <button onClick={() => setShowReenroll(false)}
-                style={{ background: "none", border: "none", cursor: "pointer",
-                  fontSize: 20, color: "#4a4d6a", lineHeight: 1 }}>×</button>
-            </div>
-            <EnrollView
-              onEnrolled={() => setShowReenroll(false)}
-              onSkip={() => setShowReenroll(false)}
-            />
-          </div>
-        </div>
-      )}
-
       {showFeedback && (
         <FeedbackModal onClose={() => setShowFeedback(false)} />
       )}
@@ -329,15 +298,7 @@ export default function App() {
           so .view-enter animation fires every time you switch to that tab */}
       <div style={{ display: view === "profile" ? "block" : "none" }}>
         <div key={`profile-${viewKeys.profile}`} className="view-enter">
-          <ProfileView active={view === "profile"} onUpload={() => setView("upload")} />
-        </div>
-      </div>
-      <div style={{ display: view === "upload" ? "block" : "none" }}>
-        <div key={`upload-${viewKeys.upload}`} className="view-enter">
-          <UploadView
-            onResults={(r) => { setResults(r); setView("results") }}
-            onActivate={() => setView("upload")}
-          />
+          <ProfileView active={view === "profile"} />
         </div>
       </div>
       {view === "results" && results && (

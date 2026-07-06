@@ -717,6 +717,29 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
                 os.remove(mic_audio_path)
             return
 
+        # No WebRTC speaker timeline — pyannote/voiceprint diarization has been quarantined
+        # off the live path (CLAUDE.md rule #1: no diarization/voiceprint guessing on live
+        # recordings). Fail cleanly rather than silently falling back to speaker-guessing.
+        if not speaker_timeline:
+            logger.error(
+                "[%s] ✕ No WebRTC speaker timeline provided — cannot process without it "
+                "(pyannote fallback removed from the live path). WebRTC injection likely "
+                "failed or hadn't detected any track yet for this recording.",
+                _sid(session_id),
+            )
+            if mic_audio_path and os.path.exists(mic_audio_path):
+                os.remove(mic_audio_path)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+            _cancel_job_timeout(session_id)
+            if session_id in _jobs:
+                _jobs[session_id].put({
+                    "event": "error",
+                    "message": "Couldn't detect meeting audio for this recording. "
+                                "Please reload the Meet tab and try recording again.",
+                })
+            return
+
         # ── Mic transcript (the user's own voice) — independent of the tab/room pipeline ──
         # Proof-only for now: transcribed and logged/returned, never merged into the
         # tab-based transcript/diarization/merged fields below. Kicked off in a background
@@ -733,59 +756,38 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             mic_pool = ThreadPoolExecutor(max_workers=1)
             mic_future = mic_pool.submit(transcriber.transcribe, mic_audio_path)
 
-        if speaker_timeline:
-            # ── WebRTC path: skip pyannote, use provided timeline + transcribe only ────
-            speaker_labels = sorted({e["speaker"] for e in speaker_timeline})
-            has_user_vad = "SPEAKER_00" in speaker_labels
-            logger.info(
-                "[%s] 1/3 Transcribing (WebRTC timeline provided: %d events, speakers: %s, has_user_vad: %s)",
-                _sid(session_id), len(speaker_timeline), speaker_labels, has_user_vad,
+        # WebRTC timeline is guaranteed present here (fail-fast above otherwise).
+        speaker_labels = sorted({e["speaker"] for e in speaker_timeline})
+        has_user_vad = "SPEAKER_00" in speaker_labels
+        logger.info(
+            "[%s] 1/2 Transcribing (WebRTC timeline provided: %d events, speakers: %s, has_user_vad: %s)",
+            _sid(session_id), len(speaker_timeline), speaker_labels, has_user_vad,
+        )
+        if not has_user_vad:
+            logger.warning(
+                "[%s] WARNING: No SPEAKER_00 in WebRTC timeline — local mic was NOT captured by injector. "
+                "Gap-fill will be used (may inflate user talk ratio).",
+                _sid(session_id),
             )
-            if not has_user_vad:
-                logger.warning(
-                    "[%s] WARNING: No SPEAKER_00 in WebRTC timeline — local mic was NOT captured by injector. "
-                    "Gap-fill will be used (may inflate user talk ratio).",
-                    _sid(session_id),
-                )
-            emit("transcribing", "Transcribing audio with Deepgram…")
-            transcript = transcriber.transcribe(audio_path)
-            logger.info(
-                "[%s]    Transcription done: %d segments, ~%d words",
-                _sid(session_id), len(transcript.get("segments", [])),
-                sum(len(s.get("words", [])) for s in transcript.get("segments", [])),
-            )
-            emit("diarizing", "Using meeting speaker data…")
+        emit("transcribing", "Transcribing audio with Deepgram…")
+        transcript = transcriber.transcribe(audio_path)
+        logger.info(
+            "[%s]    Transcription done: %d segments, ~%d words",
+            _sid(session_id), len(transcript.get("segments", [])),
+            sum(len(s.get("words", [])) for s in transcript.get("segments", [])),
+        )
+        emit("diarizing", "Using meeting speaker data…")
 
-            total_dur = audio_duration_s or (
-                max(s["end"] for s in transcript["segments"]) if transcript.get("segments") else 0
-            )
-            logger.info("[%s]    Audio duration: %.1fs", _sid(session_id), total_dur)
-            diarization = _fill_speaker_gaps(speaker_timeline, total_dur)
-            unique_speakers = {s["speaker"] for s in diarization}
-            logger.info(
-                "[%s]    WebRTC timeline processed: %d segments, %d unique speakers: %s",
-                _sid(session_id), len(diarization), len(unique_speakers), sorted(unique_speakers),
-            )
-        else:
-            # ── Standard path: parallel transcription + pyannote diarization ────────
-            logger.info("[%s] 1/3 Transcribing + diarizing (pyannote path)...", _sid(session_id))
-            emit("transcribing", "Transcribing audio with Deepgram…")
-
-            with ThreadPoolExecutor(max_workers=2) as pool:
-                f_transcript = pool.submit(transcriber.transcribe, audio_path)
-                f_diarization = pool.submit(diarizer.diarize, audio_path)
-                transcript = f_transcript.result()
-                logger.info(
-                    "[%s]    Transcription done: %d segments",
-                    _sid(session_id), len(transcript.get("segments", [])),
-                )
-                emit("diarizing", "Identifying speakers…")
-                diarization = f_diarization.result()
-                logger.info(
-                    "[%s]    Pyannote done: %d segments, speakers: %s",
-                    _sid(session_id), len(diarization),
-                    sorted({s["speaker"] for s in diarization}),
-                )
+        total_dur = audio_duration_s or (
+            max(s["end"] for s in transcript["segments"]) if transcript.get("segments") else 0
+        )
+        logger.info("[%s]    Audio duration: %.1fs", _sid(session_id), total_dur)
+        diarization = _fill_speaker_gaps(speaker_timeline, total_dur)
+        unique_speakers = {s["speaker"] for s in diarization}
+        logger.info(
+            "[%s]    WebRTC timeline processed: %d segments, %d unique speakers: %s",
+            _sid(session_id), len(diarization), len(unique_speakers), sorted(unique_speakers),
+        )
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
@@ -803,89 +805,28 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         logger.info("[%s]    Merged transcript: %d segments", _sid(session_id), len(merged))
 
         unique_speakers = {s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"}
-        logger.info("[%s] 2/3 Detecting voice (%d speakers found)...", _sid(session_id), len(unique_speakers))
+        logger.info("[%s] 2/2 Detecting voice (%d speakers found)...", _sid(session_id), len(unique_speakers))
         emit("detecting", "Detecting your voice…")
 
+        # No voiceprint matching — the user is identified by construction (the mic stream),
+        # never guessed via speaker embeddings. CLAUDE.md rule #1.
         voiceprint_match = None
         voiceprint_confidence = None
-        speaker_ids = sorted(unique_speakers)
+        detected_speaker = "SPEAKER_00"
+        logger.info("[%s]    User auto-assigned to SPEAKER_00 (mic is the user, by construction)", _sid(session_id))
 
-        if speaker_timeline:
-            # WebRTC path: user is always SPEAKER_00 — skip voiceprint
-            detected_speaker = "SPEAKER_00"
-            logger.info("[%s]    WebRTC mode — user auto-assigned to SPEAKER_00", _sid(session_id))
-
-            # Validate that SPEAKER_00 segments exist in merged transcript
-            user_merged_segs = [s for s in merged if s.get("speaker") == "SPEAKER_00"]
-            logger.info(
-                "[%s]    SPEAKER_00 segments in merged transcript: %d",
-                _sid(session_id), len(user_merged_segs),
+        user_merged_segs = [s for s in merged if s.get("speaker") == "SPEAKER_00"]
+        logger.info(
+            "[%s]    SPEAKER_00 segments in merged transcript: %d",
+            _sid(session_id), len(user_merged_segs),
+        )
+        if len(user_merged_segs) == 0:
+            logger.warning(
+                "[%s] WARNING: No SPEAKER_00 transcript segments found! "
+                "User's speech may not have been correctly attributed. "
+                "Analysis will run but signals may be zero/empty.",
+                _sid(session_id),
             )
-            if len(user_merged_segs) == 0:
-                logger.warning(
-                    "[%s] WARNING: No SPEAKER_00 transcript segments found! "
-                    "User's speech may not have been correctly attributed. "
-                    "Analysis will run but signals may be zero/empty.",
-                    _sid(session_id),
-                )
-        else:
-            # Standard path: run voiceprint matching to identify the user
-            res = supabase_admin.table("user_voiceprints").select("embedding_json").eq(
-                "user_id", user_id
-            ).execute()
-            stored_vp = res.data[0] if res.data else None
-
-            if stored_vp and voiceprint_matcher.available:
-                raw = json.loads(stored_vp["embedding_json"])
-                stored_embs = [np.array(e) for e in raw] if isinstance(raw[0], list) else [np.array(raw)]
-
-                speaker_segs_map: dict = {}
-                for seg in diarization:
-                    if seg["speaker"] != "UNKNOWN":
-                        speaker_segs_map.setdefault(seg["speaker"], []).append(seg)
-
-                talk_times = {
-                    sp: sum(s["end"] - s["start"] for s in segs)
-                    for sp, segs in speaker_segs_map.items()
-                }
-                total_time = sum(talk_times.values()) or 1
-
-                vp_scores: dict = {}
-                for sp, segs in speaker_segs_map.items():
-                    emb = voiceprint_matcher.extract_speaker_embedding(audio_path, segs)
-                    if emb is not None:
-                        vp_scores[sp] = max(
-                            VoiceprintMatcher._cosine_similarity(emb, ref)
-                            for ref in stored_embs
-                        )
-
-                if vp_scores:
-                    best_vp = max(vp_scores, key=vp_scores.get)
-                    best_score = vp_scores[best_vp]
-
-                    if best_score >= 0.55:
-                        voiceprint_match = best_vp
-                        voiceprint_confidence = best_score
-                        logger.info("[%s]    Voice matched: %s (confidence %.2f)", _sid(session_id), best_vp, best_score)
-                    else:
-                        combined = {
-                            sp: 0.6 * vp_scores[sp] + 0.4 * (talk_times.get(sp, 0) / total_time)
-                            for sp in vp_scores
-                        }
-                        best_combined = max(combined, key=combined.get)
-                        voiceprint_match = best_combined
-                        voiceprint_confidence = best_score
-                        logger.warning(
-                            "[%s]    Voice low-confidence (%.2f) → blended to %s",
-                            _sid(session_id), best_score, best_combined,
-                        )
-            else:
-                if not stored_vp:
-                    logger.info("[%s]    No voiceprint enrolled — defaulting to first speaker", _sid(session_id))
-                elif not voiceprint_matcher.available:
-                    logger.warning("[%s]    Voiceprint matcher unavailable — defaulting to first speaker", _sid(session_id))
-
-            detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
         mic_transcript = None
         if mic_future:
@@ -1175,7 +1116,8 @@ def _run_finalize_job(session_id, confirmed_speaker):
         fingerprint = insights.pop("fingerprint", None)
 
         # ── Persist ───────────────────────────────────────────────────
-        _update_voiceprint(user_id, audio_path, diarization, confirmed_speaker)
+        # No voiceprint update — pyannote/voiceprint is quarantined off the live path
+        # (CLAUDE.md rule #1); the user is identified by the mic stream, not by matching.
         _save_session(
             session_id, user_id, signals, insights, dimensions,
             primary_context, filename, confirmed_speaker,
@@ -1965,38 +1907,6 @@ def _build_speaker_samples(merged: list, diarization: list) -> dict:
         speakers[sp]["talk_time_s"] = round(speakers[sp]["talk_time_s"], 1)
 
     return speakers
-
-
-def _update_voiceprint(user_id: str, audio_path: str, diarization: list, confirmed_speaker: str):
-    if not voiceprint_matcher.available:
-        return
-
-    speaker_segs = [s for s in diarization if s["speaker"] == confirmed_speaker]
-    new_emb = voiceprint_matcher.extract_speaker_embedding(audio_path, speaker_segs)
-    if new_emb is None:
-        return
-
-    res = supabase_admin.table("user_voiceprints").select("embedding_json").eq(
-        "user_id", user_id
-    ).execute()
-    existing = res.data[0] if res.data else None
-
-    if existing:
-        raw = json.loads(existing["embedding_json"])
-        stored = [np.array(e) for e in raw] if isinstance(raw[0], list) else [np.array(raw)]
-        norm_new = new_emb / np.linalg.norm(new_emb)
-        stored.append(norm_new)
-        stored = stored[-10:]  # keep at most 10 most recent
-        supabase_admin.table("user_voiceprints").update({
-            "embedding_json": json.dumps([e.tolist() for e in stored]),
-            "updated_at": _utcnow()
-        }).eq("user_id", user_id).execute()
-    else:
-        norm_emb = new_emb / np.linalg.norm(new_emb)
-        supabase_admin.table("user_voiceprints").insert({
-            "user_id": user_id,
-            "embedding_json": json.dumps([norm_emb.tolist()]),
-        }).execute()
 
 
 def _get_user_baseline(user_id: str):
