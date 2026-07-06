@@ -1,6 +1,8 @@
 import json
 from groq import Groq
 
+from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
+
 
 CONTEXT_COACHING_GUIDE = {
     "social": (
@@ -47,16 +49,15 @@ class InsightGenerator:
     def __init__(self, api_key: str):
         self.client = Groq(api_key=api_key)
 
-    def generate(self, signals: dict, context: str, user_baseline: dict = None,
+    def generate(self, signals: dict, context: str, evidence: dict = None,
                  transcript_text: str = "", dimensions: dict = None,
                  session_history: list = None, resonance_calibration: dict = None,
                  conversation_types: list = None) -> dict:
-        structured_input = self._prepare_input(signals, context, user_baseline)
+        structured_input = self._prepare_input(signals, context, evidence)
         prompt = self._build_prompt(
             structured_input,
             transcript_text,
             context,
-            user_baseline,
             session_history or [],
             resonance_calibration or {},
             conversation_types or [context],
@@ -69,7 +70,7 @@ class InsightGenerator:
         )
         return self._parse_output(response.choices[0].message.content)
 
-    def _prepare_input(self, signals: dict, context: str, baseline: dict) -> dict:
+    def _prepare_input(self, signals: dict, context: str, evidence: dict) -> dict:
         prepared = {
             "context": context,
             "session_duration_minutes": round(signals["session_duration_s"] / 60, 1),
@@ -85,60 +86,48 @@ class InsightGenerator:
             "avg_response_latency_s": signals["pauses"]["response_latency"]["mean_s"],
         }
 
-        if baseline:
-            source = baseline.get("source")
-
-            def _delta_pct(current, base):
-                if not base or base == 0:
-                    return None
-                return round((current - base) / base * 100, 1)
-
-            if source == "personal_context":
-                prepared["baseline_comparison"] = {
-                    "type": "personal_context",
-                    "context": baseline["context"],
-                    "session_count": baseline["session_count"],
-                    "speech_rate": {
-                        "current": prepared["speech_rate_wpm"],
-                        "context_avg": round(baseline["avg_speech_rate_wpm"], 1),
-                        "delta_pct": _delta_pct(prepared["speech_rate_wpm"], baseline["avg_speech_rate_wpm"]),
-                    },
-                    "filler_rate": {
-                        "current": prepared["filler_rate_per_100_words"],
-                        "context_avg": round(baseline["avg_filler_rate"], 2),
-                        "delta_pct": _delta_pct(prepared["filler_rate_per_100_words"], baseline["avg_filler_rate"]),
-                    },
-                    "talk_ratio": {
-                        "current": prepared["talk_ratio_user"],
-                        "context_avg": round(baseline["avg_talk_ratio"], 3),
-                        "delta_pp": round(prepared["talk_ratio_user"] - baseline["avg_talk_ratio"], 3),
-                    },
-                }
-            elif source == "population_norm":
-                norms = baseline["norms"]
-
-                def _norm_check(val, key, scale=1.0):
-                    if key not in norms:
-                        return None, None, ""
-                    lo, hi, note = norms[key]
-                    return (lo <= val <= hi), (round(lo * scale), round(hi * scale)), note
-
-                tr_in, tr_range, _ = _norm_check(prepared["talk_ratio_user"], "avg_talk_ratio", scale=100)
-                fr_in, fr_range, _ = _norm_check(prepared["filler_rate_per_100_words"], "avg_filler_rate")
-
-                prepared["baseline_comparison"] = {
-                    "type": "population_norm",
-                    "context": baseline["context"],
-                    "talk_ratio": {"current_pct": round(prepared["talk_ratio_user"] * 100),
-                                   "expected_range": tr_range, "within_norm": tr_in},
-                    "filler_rate": {"current": prepared["filler_rate_per_100_words"],
-                                    "expected_range": fr_range, "within_norm": fr_in},
-                }
+        if evidence:
+            # Per-signal evidence gating (CLAUDE.md rule #3): each tracked signal either
+            # has enough steady evidence for a self-relative comparison, or it doesn't —
+            # in which case it's listed as not-yet-steady so the prompt can explicitly
+            # instruct against inventing a pattern for it. Self-relative only (rule #4) —
+            # no population comparison of any kind.
+            signal_current_value = {
+                "talk_ratio": prepared["talk_ratio_user"],
+                "questions": prepared["user_questions_asked"],
+                "speech_rate": prepared["speech_rate_wpm"],
+                "response_latency": prepared["avg_response_latency_s"],
+            }
+            steady = {}
+            not_yet_steady = []
+            for sig_key, sig_evidence in evidence.get("signals", {}).items():
+                current = signal_current_value.get(sig_key)
+                if sig_evidence["is_steady"] and current is not None:
+                    delta = current - sig_evidence["mean"]
+                    delta_pct = (delta / sig_evidence["mean"] * 100) if sig_evidence["mean"] else None
+                    steady[sig_key] = {
+                        "current": current,
+                        "your_usual": round(sig_evidence["mean"], 3),
+                        "delta": round(delta, 3),
+                        "delta_pct": round(delta_pct, 1) if delta_pct is not None else None,
+                        "sample_count": sig_evidence["sample_count"],
+                    }
+                else:
+                    not_yet_steady.append({
+                        "signal": sig_key,
+                        "sample_count": sig_evidence["sample_count"],
+                        "min_needed": sig_evidence["min_samples_required"],
+                    })
+            prepared["evidence"] = {
+                "context": evidence["context"],
+                "steady": steady,
+                "not_yet_steady": not_yet_steady,
+            }
 
         return prepared
 
     def _build_prompt(self, data: dict, transcript_text: str,
-                      context: str, baseline: dict,
+                      context: str,
                       session_history: list,
                       resonance_calibration: dict,
                       conversation_types: list) -> str:
@@ -167,44 +156,40 @@ CONVERSATION TRANSCRIPT:
   Duration: {data['session_duration_minutes']} minutes
 """
 
-        # ── Baseline ──────────────────────────────────────────────────
-        baseline_section = ""
-        if "baseline_comparison" in data:
-            b = data["baseline_comparison"]
-            btype = b.get("type")
-            if btype == "personal_context":
-                n = b["session_count"]
-                ctx = b["context"].replace("_", " ")
-                sr, fr, tr = b["speech_rate"], b["filler_rate"], b["talk_ratio"]
+        # ── Evidence (self-relative only — per-signal gated, CLAUDE.md rules #3/#4) ────
+        evidence_section = ""
+        ev = data.get("evidence")
+        if ev:
+            ctx_label = ev["context"].replace("_", " ")
+            lines = []
+            for sig_key, c in ev["steady"].items():
+                label = SIGNAL_EVIDENCE_CONFIG[sig_key]["label"]
+                if c["delta"] > 0:
+                    arrow = "more than"
+                elif c["delta"] < 0:
+                    arrow = "less than"
+                else:
+                    arrow = "about the same as"
+                lines.append(
+                    f"  {label}: {c['current']} vs your usual {c['your_usual']} "
+                    f"({arrow} usual, based on {c['sample_count']} past {ctx_label} sessions)"
+                )
+            if lines:
+                evidence_section = (
+                    f"\nYOUR ESTABLISHED {ctx_label.upper()} PATTERNS "
+                    f"(self-relative — compare ONLY to this user's own history, never to other people):\n"
+                    + "\n".join(lines) + "\n"
+                )
 
-                def _fmt(delta, unit=""):
-                    if delta is None:
-                        return "no change"
-                    return f"{'+'if delta > 0 else ''}{delta}{unit}"
-
-                baseline_section = f"""
-YOUR {ctx.upper()} BASELINE ({n} previous sessions):
-  Speech rate: {sr['current']} wpm vs your avg {sr['context_avg']} wpm ({_fmt(sr['delta_pct'], '%')})
-  Filler rate: {fr['current']}/100w vs your avg {fr['context_avg']}/100w ({_fmt(fr['delta_pct'], '%')})
-  Talk ratio: {round(tr['current']*100)}% vs your avg {round(tr['context_avg']*100)}% ({_fmt(tr['delta_pp']*100, 'pp')})
-"""
-            elif btype == "population_norm":
-                ctx = b["context"].replace("_", " ")
-                tr, fr = b["talk_ratio"], b["filler_rate"]
-                mark = lambda v: "✓" if v else "✗"
-                lines = []
-                if tr["expected_range"]:
-                    lo, hi = tr["expected_range"]
-                    lines.append(f"  Talk ratio: {tr['current_pct']}% (expected {lo}–{hi}%) {mark(tr['within_norm'])}")
-                if fr["expected_range"]:
-                    lo, hi = fr["expected_range"]
-                    lines.append(f"  Filler rate: {fr['current']}/100w (expected {lo}–{hi}/100w) {mark(fr['within_norm'])}")
-                if lines:
-                    baseline_section = f"""
-CONTEXT NORMS FOR {ctx.upper()}:
-Do NOT flag ✓ signals as issues. Coach only on ✗ signals.
-{chr(10).join(lines)}
-"""
+            not_ready = ev.get("not_yet_steady", [])
+            if not_ready:
+                labels = ", ".join(SIGNAL_EVIDENCE_CONFIG[n["signal"]]["label"] for n in not_ready)
+                evidence_section += (
+                    f"\nNOT ENOUGH EVIDENCE YET for: {labels}. "
+                    f"Do NOT say \"more/less than usual\" for these — report this session's raw numbers "
+                    f"as observations only, with no comparison framing. It is fine to have less to say "
+                    f"here; do not invent a pattern.\n"
+                )
 
         # ── Session history (fingerprints + anti-repetition) ─────────
         history_section = ""
@@ -247,7 +232,7 @@ The fingerprints above show what has already been observed and documented. Do NO
         return f"""You are a behavioral communication coach. Read the conversation transcript below and provide a deep, specific analysis.
 
 CONTEXT: {types_str} — {coaching_guide}
-{transcript_section}{signals_section}{baseline_section}{history_section}{resonance_section}
+{transcript_section}{signals_section}{evidence_section}{history_section}{resonance_section}
 WHAT TO LOOK FOR — scan the transcript across ALL of these dimensions. Do not default to the obvious:
 
 PERSPECTIVE & THINKING STYLE

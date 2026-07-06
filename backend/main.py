@@ -38,6 +38,7 @@ from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.personality_synthesizer import PersonalitySynthesizer
 from pipeline.mirror_feed_synthesizer import MirrorFeedSynthesizer
+from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, compute_signal_evidence, extract_value
 from db.database import supabase_admin
 
 app = FastAPI()
@@ -127,66 +128,6 @@ print("[startup] All models loaded. Server ready.")
 # In-memory caches — cleared on server restart, Supabase is the durable layer
 _personality_cache: dict = {}   # key = "{user_id}:{session_count}:v{version}"
 _mirror_feed_cache: dict = {}   # key = "{user_id}:{session_count}"
-
-
-CONTEXT_POPULATION_NORMS: dict = {
-    # (expected_min, expected_max, note)
-    # avg_talk_ratio as 0.0–1.0 | avg_filler_rate as /100w | avg_response_latency_s in seconds | avg_speech_rate_wpm in wpm
-    "evaluative": {
-        "avg_talk_ratio":         (0.55, 0.80, "You're being assessed — longer answers are expected"),
-        "avg_filler_rate":        (0.0,  3.5,  "Fillers undermine credibility here more than anywhere else"),
-        "avg_response_latency_s": (0.8,  3.5,  "Brief pause before answering reads as thoughtful, not hesitant"),
-        "avg_speech_rate_wpm":    (115,  180,  "Measured, clear pace aids comprehension under assessment"),
-    },
-    "collaborative": {
-        "avg_talk_ratio":         (0.30, 0.55, "Balanced airtime — one person dominating stifles collaboration"),
-        "avg_filler_rate":        (0.0,  6.0,  "Moderate fillers are acceptable in working conversations"),
-        "avg_response_latency_s": (0.3,  2.0,  "Quick engagement signals active participation"),
-        "avg_speech_rate_wpm":    (110,  185,  "Natural working pace"),
-    },
-    "social": {
-        "avg_talk_ratio":         (0.35, 0.65, "Balanced sharing — conversations, not monologues"),
-        "avg_filler_rate":        (0.0,  9.0,  "Fillers are natural and accepted in casual speech"),
-        "avg_response_latency_s": (0.2,  2.0,  "Natural conversational pace"),
-        "avg_speech_rate_wpm":    (110,  200,  "Natural social pace — varies widely"),
-    },
-    "influential": {
-        "avg_talk_ratio":         (0.48, 0.68, "You lead but must create dialogue — monologuing loses the room"),
-        "avg_filler_rate":        (0.0,  4.0,  "Fillers undermine credibility when persuading"),
-        "avg_response_latency_s": (0.5,  2.5,  ""),
-        "avg_speech_rate_wpm":    (115,  175,  "Clear, deliberate pace aids persuasion"),
-    },
-    "negotiation": {
-        "avg_talk_ratio":         (0.35, 0.55, "Balance creates space for counter-offers and signals respect"),
-        "avg_filler_rate":        (0.0,  4.0,  "Fillers signal uncertainty — costly in negotiations"),
-        "avg_response_latency_s": (1.0,  4.0,  "Strategic pauses are a tool — don't rush responses"),
-        "avg_speech_rate_wpm":    (105,  160,  "Slower pace signals confidence and deliberateness"),
-    },
-    "adversarial": {
-        "avg_talk_ratio":         (0.35, 0.55, "Dominating airtime escalates conflict — balance de-escalates"),
-        "avg_filler_rate":        (0.0,  6.0,  ""),
-        "avg_response_latency_s": (0.8,  4.0,  "Pausing before responding signals self-control"),
-        "avg_speech_rate_wpm":    (105,  165,  "Measured pace signals emotional control"),
-    },
-    "developmental": {
-        "avg_talk_ratio":         (0.25, 0.45, "The other person should speak more — high ratio is a red flag in coaching"),
-        "avg_filler_rate":        (0.0,  5.0,  ""),
-        "avg_response_latency_s": (1.0,  4.0,  "Pausing after questions creates space for genuine reflection"),
-        "avg_speech_rate_wpm":    (100,  165,  "Measured pace aids comprehension"),
-    },
-    "support": {
-        "avg_talk_ratio":         (0.15, 0.40, "Your role is to listen — high talk ratio means you're not supporting"),
-        "avg_filler_rate":        (0.0,  7.0,  ""),
-        "avg_response_latency_s": (1.0,  5.0,  "Longer pauses show you're processing, not rushing to fix"),
-        "avg_speech_rate_wpm":    (85,   155,  "Slower pace signals presence and care"),
-    },
-    "intimate": {
-        "avg_talk_ratio":         (0.35, 0.60, "Equal sharing of space and vulnerability"),
-        "avg_filler_rate":        (0.0,  8.0,  "Natural in emotionally open conversations"),
-        "avg_response_latency_s": (1.0,  5.0,  "Thoughtful pauses signal you're really processing what was shared"),
-        "avg_speech_rate_wpm":    (85,   160,  "Slower pace deepens connection"),
-    },
-}
 
 
 def _compute_dim_averages(parsed: list) -> dict:
@@ -1100,13 +1041,13 @@ def _run_finalize_job(session_id, confirmed_speaker):
         primary_context = conversation_types[0]
         logger.info("[%s]    Context: %s (primary: %s)", _sid(session_id), conversation_types, primary_context)
 
-        baseline = _get_context_baseline(user_id, primary_context)
+        evidence = _get_context_evidence(user_id, primary_context)
         session_history = _get_user_session_history(user_id)
         resonance_calibration = _get_resonance_calibration(user_id)
 
         logger.info("[%s]    Calling insight_gen.generate...", _sid(session_id))
         insights = insight_gen.generate(
-            signals, primary_context, baseline, full_text, dimensions,
+            signals, primary_context, evidence, full_text, dimensions,
             session_history=session_history,
             resonance_calibration=resonance_calibration,
             conversation_types=conversation_types,
@@ -1261,7 +1202,7 @@ async def reanalyze_session(
     conversation_types = existing_insights.get("conversation_types", [primary_context])
 
     print(f"[{_sid(session_id)}] ▶ Re-analyzing as {confirmed_speaker}...")
-    baseline = _get_context_baseline(user_id, primary_context)
+    evidence = _get_context_evidence(user_id, primary_context)
     session_history = _get_user_session_history(user_id)
     resonance_calibration = _get_resonance_calibration(user_id)
     dimensions = dimension_scorer.score_all(signals)
@@ -1271,7 +1212,7 @@ async def reanalyze_session(
     transcript_text = existing_fingerprint or ""
 
     insights = insight_gen.generate(
-        signals, primary_context, baseline, transcript_text, dimensions,
+        signals, primary_context, evidence, transcript_text, dimensions,
         session_history=session_history,
         resonance_calibration=resonance_calibration,
         conversation_types=conversation_types,
@@ -1909,54 +1850,32 @@ def _build_speaker_samples(merged: list, diarization: list) -> dict:
     return speakers
 
 
-def _get_user_baseline(user_id: str):
-    res = supabase_admin.table("sessions").select("signals_json").eq(
-        "user_id", user_id
-    ).execute()
-    sessions = res.data
-    if len(sessions) < 3:
-        return None
+def _get_context_evidence(user_id: str, context: str) -> dict:
+    """Per-signal evidence gating for self-relative baseline comparison (CLAUDE.md
+    rule #3: gate on accumulated evidence per signal, never session count; rule #4:
+    self-relative only, never population comparisons — no population-norm fallback
+    of any kind).
 
-    all_signals = [json.loads(s["signals_json"]) for s in sessions[-10:]]
-    return {
-        "avg_speech_rate_wpm": float(np.mean(
-            [s["speech_rate"]["overall_wpm"] for s in all_signals])),
-        "avg_talk_ratio": float(np.mean(
-            [s["talk_ratio"]["user_ratio"] for s in all_signals])),
-        "avg_filler_rate": float(np.mean(
-            [s["filler_words"]["rate_per_100_words"] for s in all_signals])),
-        "avg_response_latency_s": float(np.mean(
-            [s["pauses"]["response_latency"]["mean_s"] for s in all_signals])),
-    }
-
-
-def _get_context_baseline(user_id: str, context: str) -> dict | None:
-    """Return context-specific baseline.
-    Priority: personal context average (3+ same-context sessions) → population norms → None.
+    Always returns a dict (never None) — signals with insufficient or noisy evidence
+    are marked not-steady, never silently dropped, so the caller/prompt can render an
+    honest "not enough evidence yet" state instead of guessing.
     """
     res = supabase_admin.table("sessions").select("signals_json").eq(
         "user_id", user_id
-    ).eq("context", context).execute()
+    ).eq("context", context).order("created_at", desc=False).execute()
 
     context_sessions = [s for s in res.data if s.get("signals_json")]
+    all_signals = [json.loads(s["signals_json"]) for s in context_sessions]
 
-    if len(context_sessions) >= 3:
-        all_signals = [json.loads(s["signals_json"]) for s in context_sessions[-10:]]
-        return {
-            "source": "personal_context",
-            "context": context,
-            "session_count": len(context_sessions),
-            "avg_speech_rate_wpm":    float(np.mean([s["speech_rate"]["overall_wpm"] for s in all_signals])),
-            "avg_talk_ratio":         float(np.mean([s["talk_ratio"]["user_ratio"] for s in all_signals])),
-            "avg_filler_rate":        float(np.mean([s["filler_words"]["rate_per_100_words"] for s in all_signals])),
-            "avg_response_latency_s": float(np.mean([s["pauses"]["response_latency"]["mean_s"] for s in all_signals])),
-        }
+    evidence = {}
+    for signal_key in SIGNAL_EVIDENCE_CONFIG:
+        try:
+            values = [extract_value(signal_key, sig) for sig in all_signals]
+        except (KeyError, TypeError):
+            values = []
+        evidence[signal_key] = compute_signal_evidence(signal_key, values)
 
-    norms = CONTEXT_POPULATION_NORMS.get(context)
-    if norms:
-        return {"source": "population_norm", "context": context, "norms": norms}
-
-    return None
+    return {"context": context, "session_count": len(context_sessions), "signals": evidence}
 
 
 def _get_user_session_history(user_id: str, limit: int = 8) -> list:

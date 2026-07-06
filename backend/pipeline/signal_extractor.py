@@ -5,10 +5,10 @@ from collections import Counter
 
 class SignalExtractor:
 
-    FILLER_WORDS = ["um", "uh", "like", "you know", "basically",
-                    "literally", "actually", "so", "right", "i mean",
-                    "matlab", "yaani", "bas", "toh", "na", "aur",
-                    "waise", "dekh", "yaar", "arre", "haan"]
+    # True hesitation fillers only — "so"/"like"/"right"/"actually" and Hindi
+    # "aur"/"toh"/"na"/"haan"/"bas"/"yaar"/"arre"/"waise"/"dekh"/"matlab"/"yaani" are
+    # ordinary discourse/address words, not filler sounds, and must not be counted.
+    FILLER_WORDS = ["um", "uh", "you know", "basically", "literally", "i mean"]
 
     QUESTION_WORDS = ["what", "why", "how", "when", "where", "who",
                       "which", "whose", "whom", "kya", "kyun", "kaise",
