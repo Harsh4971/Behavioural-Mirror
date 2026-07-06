@@ -48,6 +48,8 @@ export default function App() {
     try {
       await api.delete("/api/account")
       await supabase.auth.signOut()
+      setDeleting(false)
+      setConfirmDelete(false)
     } catch (e) {
       console.error("Delete account failed:", e)
       setDeleting(false)
@@ -70,6 +72,11 @@ export default function App() {
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (!session) {
+        setConfirmDelete(false)
+        setShowAccountMenu(false)
+        setDeleting(false)
+      }
       if (session) {
         // Keep background service worker's JWT in sync for Meet recording
         if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
@@ -82,6 +89,29 @@ export default function App() {
       }
     })
     return () => subscription.unsubscribe()
+  }, [])
+
+  // Lets background.js force a fresh token on demand (e.g. after a 401 mid-recording) —
+  // getSession() proactively refreshes if the current session is expired, regardless of
+  // whether Supabase's own background auto-refresh timer has fired yet.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.id) return
+    function onMessage(msg, _sender, sendResponse) {
+      if (msg.action !== 'request_token_refresh') return
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          chrome.runtime.sendMessage({
+            action: 'sync_token',
+            token: session.access_token,
+            userId: session.user.id,
+          }).catch(() => {})
+        }
+        sendResponse({ token: session?.access_token || null, userId: session?.user?.id || null })
+      })
+      return true
+    }
+    chrome.runtime.onMessage.addListener(onMessage)
+    return () => chrome.runtime.onMessage.removeListener(onMessage)
   }, [])
 
   if (authLoading) return (

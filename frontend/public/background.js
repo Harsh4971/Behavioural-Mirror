@@ -346,8 +346,48 @@ function base64ToBlob(base64, mimeType) {
   return new Blob([bytes], { type: mimeType || 'audio/webm' });
 }
 
+// Asks any open extension page (side panel / full page) to force-refresh its Supabase
+// session and report the current token back. Used to self-heal a 401 mid-chunk — prepare
+// and finalize can be minutes apart (2 transcriptions, diarization, scoring, an LLM call),
+// long enough for the token cached at recording-start to go stale before finalize runs.
+async function requestTokenRefresh() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: 'request_token_refresh' }, (res) => {
+      if (chrome.runtime.lastError || !res?.token) {
+        resolve(null);
+      } else {
+        resolve(res.token);
+      }
+    });
+  });
+}
+
+// POSTs with the given token; on a 401, requests a fresh token and retries once.
+// Returns { res, token } — token is the one that ultimately succeeded (or was last tried),
+// so callers can reuse it for a subsequent SSE stream read.
+async function fetchWithTokenRetry(url, token, body, chunkIndex, label) {
+  let res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+  if (res.status === 401) {
+    console.warn(`[mirror] Chunk ${chunkIndex}: ${label} got 401 — refreshing token and retrying once...`);
+    const freshToken = await requestTokenRefresh();
+    if (freshToken) {
+      token = freshToken;
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      });
+    }
+  }
+  return { res, token };
+}
+
 async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chunkIndex }) {
-  const { mirror_token } = await getToken();
+  let { mirror_token } = await getToken();
 
   if (!mirror_token) {
     console.error('[mirror] ERROR: No auth token — cannot upload chunk. User must be signed in.');
@@ -412,11 +452,10 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
       }
     }
 
-    const prepareRes = await fetch(`${API_URL}/api/prepare/start`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${mirror_token}` },
-      body: form,
-    });
+    const { res: prepareRes, token: tokenAfterPrepare } = await fetchWithTokenRetry(
+      `${API_URL}/api/prepare/start`, mirror_token, form, chunkIndex, 'Prepare'
+    );
+    mirror_token = tokenAfterPrepare;
     if (!prepareRes.ok) {
       const errText = await prepareRes.text().catch(() => '');
       throw new Error(`Prepare failed (HTTP ${prepareRes.status}): ${errText.slice(0, 200)}`);
@@ -443,11 +482,10 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
     finalForm.append('session_id', job_id);
     finalForm.append('confirmed_speaker', detectedSpeaker);
 
-    const finalRes = await fetch(`${API_URL}/api/finalize/start`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${mirror_token}` },
-      body: finalForm,
-    });
+    const { res: finalRes, token: tokenAfterFinalize } = await fetchWithTokenRetry(
+      `${API_URL}/api/finalize/start`, mirror_token, finalForm, chunkIndex, 'Finalize'
+    );
+    mirror_token = tokenAfterFinalize;
     if (!finalRes.ok) {
       const errText = await finalRes.text().catch(() => '');
       throw new Error(`Finalize failed (HTTP ${finalRes.status}): ${errText.slice(0, 200)}`);
