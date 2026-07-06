@@ -3,10 +3,6 @@ import numpy as np
 # Per-signal (min_samples, cv_threshold) — see roadmap/product_decisions memory for
 # the reasoning behind each threshold. These are starting defaults with no real
 # user data yet; expect to tune once sessions accumulate.
-#
-# Extension point: hedging / directness / building_on_others / question_impact /
-# drive_vs_follow plug in here once their extraction exists (Phase B2 follow-up).
-# Same shape, nothing else in this module needs to change.
 SIGNAL_EVIDENCE_CONFIG = {
     "talk_ratio": {
         "min_samples": 5,
@@ -32,6 +28,36 @@ SIGNAL_EVIDENCE_CONFIG = {
         "extract": lambda sig: sig["pauses"]["response_latency"]["mean_s"],
         "label": "pauses",
     },
+    "hedging": {
+        "min_samples": 5,
+        "cv_threshold": 0.30,
+        "extract": lambda sig: sig["hedging"]["rate_per_100_words"],
+        "label": "hedging",
+    },
+    "directness": {
+        "min_samples": 5,
+        "cv_threshold": 0.30,
+        "extract": lambda sig: sig["directness"]["rate_per_100_words"],
+        "label": "directness",
+    },
+    "question_impact": {
+        "min_samples": 6,
+        "cv_threshold": 0.45,
+        "extract": lambda sig: sig["question_impact"]["pickup_rate"],
+        "label": "question follow-through",
+    },
+    "drive_vs_follow": {
+        "min_samples": 6,
+        "cv_threshold": 0.35,
+        "extract": lambda sig: sig["drive_vs_follow"]["drive_score"],
+        "label": "conversational drive",
+    },
+    "building_on_others": {
+        "min_samples": 6,
+        "cv_threshold": 0.40,
+        "extract": lambda sig: sig["building_on_others"]["building_on_rate"],
+        "label": "building on others",
+    },
 }
 
 # Rolling window — matches the window the old baseline logic already used, so
@@ -47,6 +73,10 @@ def compute_signal_evidence(signal_key: str, historical_values: list) -> dict:
     so it's independently testable regardless of where the values came from.
     """
     cfg = SIGNAL_EVIDENCE_CONFIG[signal_key]
+    # Some signals (e.g. question_impact) legitimately have no value for a session
+    # (zero questions asked) — None, not a fake 0, so drop it rather than let it
+    # pollute the mean/cv or crash np.mean.
+    historical_values = [v for v in historical_values if v is not None]
     n = len(historical_values)
     result = {
         "signal": signal_key,

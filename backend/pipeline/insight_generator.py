@@ -84,6 +84,11 @@ class InsightGenerator:
             "user_questions_asked": signals["questions"]["user_questions_asked"],
             "other_questions_asked": signals["questions"]["other_questions_asked"],
             "avg_response_latency_s": signals["pauses"]["response_latency"]["mean_s"],
+            "hedging_rate": signals["hedging"]["rate_per_100_words"],
+            "directness_rate": signals["directness"]["rate_per_100_words"],
+            "question_pickup_rate": signals["question_impact"]["pickup_rate"],
+            "drive_score": signals["drive_vs_follow"]["drive_score"],
+            "building_on_rate": signals["building_on_others"]["building_on_rate"],
         }
 
         if evidence:
@@ -97,6 +102,11 @@ class InsightGenerator:
                 "questions": prepared["user_questions_asked"],
                 "speech_rate": prepared["speech_rate_wpm"],
                 "response_latency": prepared["avg_response_latency_s"],
+                "hedging": prepared["hedging_rate"],
+                "directness": prepared["directness_rate"],
+                "question_impact": prepared["question_pickup_rate"],
+                "drive_vs_follow": prepared["drive_score"],
+                "building_on_others": prepared["building_on_rate"],
             }
             steady = {}
             not_yet_steady = []
@@ -145,6 +155,7 @@ CONVERSATION TRANSCRIPT:
 
         # ── Supporting signals ────────────────────────────────────────
         fillers_str = ", ".join(data["top_filler_words"]) if data["top_filler_words"] else "none detected"
+        pickup_str = f"{round(data['question_pickup_rate'] * 100)}%" if data["question_pickup_rate"] is not None else "n/a (no questions asked)"
         signals_section = f"""SUPPORTING DATA (use to ground observations — do not lead with these):
   You spoke: {round(data['talk_ratio_user'] * 100)}% of the time
   Speech rate: {data['speech_rate_wpm']} wpm
@@ -153,6 +164,11 @@ CONVERSATION TRANSCRIPT:
   Longest unbroken stretch: {data['longest_monologue_s']}s
   Questions you asked: {data['user_questions_asked']} | they asked: {data['other_questions_asked']}
   Response latency: {data['avg_response_latency_s']}s avg
+  Hedging language: {data['hedging_rate']}/100 words
+  Directness markers: {data['directness_rate']}/100 words
+  Your questions picked up by the room: {pickup_str}
+  Conversational drive score: {data['drive_score']} (0=followed, 1=drove; composite of initiation/turn-length/question-asking)
+  Building on others' points: {round(data['building_on_rate'] * 100)}% of your turns
   Duration: {data['session_duration_minutes']} minutes
 """
 

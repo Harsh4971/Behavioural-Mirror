@@ -14,6 +14,32 @@ class SignalExtractor:
                       "which", "whose", "whom", "kya", "kyun", "kaise",
                       "kab", "kahan", "kaun", "kisko", "kisne"]
 
+    # Hedging phrases only — genuine uncertainty markers, not ordinary connectors.
+    HEDGING_PHRASES = ["i think", "i guess", "maybe", "perhaps", "kind of", "sort of",
+                        "i feel like", "probably", "possibly", "it seems", "i suppose",
+                        "shayad", "lagta hai"]
+
+    # Assertive/definitive markers. Known limitation: "always"/"never" are overloaded
+    # in casual speech ("I never really thought about it that way" isn't assertive) —
+    # an accepted v1 approximation of a keyword-list approach, not an oversight.
+    DIRECT_MARKERS = ["i will", "definitely", "certainly", "always", "never",
+                       "must", "let's", "we should", "you need to"]
+
+    # Explicit continuation/agreement markers for "building on others' points".
+    # Deliberately English-only for now — candidate Hindi phrases ("iske alawa",
+    # "isi baat ko aage badhate hue") read as too formal/written-register for
+    # spontaneous code-switched speech, so they're left out rather than shipped on
+    # an unverified guess. The lexical-overlap component below is language-agnostic
+    # and carries more weight for Hindi-heavy sessions as a result.
+    BUILDING_ON_MARKERS = ["building on that", "to add to what", "yes, and",
+                            "exactly, and", "adding to that"]
+
+    # Small stopword list for the lexical-overlap component only — content words
+    # shared between two consecutive turns, not a general-purpose NLP stopword list.
+    STOPWORDS = {"the", "and", "that", "this", "with", "have", "were", "they",
+                 "what", "when", "where", "which", "there", "their", "your",
+                 "about", "would", "could", "should", "just", "like", "from"}
+
     def __init__(self, audio_path: str, merged_segments: list, user_speaker_id: str):
         self.audio_path = audio_path
         self.segments = merged_segments
@@ -78,6 +104,9 @@ class SignalExtractor:
         # (and Meet's duplicate-track issue) don't inflate the user's share.
         all_other_segs = [s for s in self.segments if s["speaker"] not in {self.user_speaker, "UNKNOWN"}]
 
+        turn_dynamics = self._compute_turn_dynamics(user_segs, other_segs)
+        questions = self._compute_questions(user_segs, other_segs)
+
         signals = {
             "session_duration_s": self._get_session_duration(),
             "talk_ratio": self._compute_talk_ratio(user_segs, all_other_segs),
@@ -85,17 +114,24 @@ class SignalExtractor:
             "pauses": self._compute_pauses(user_segs, other_segs),
             "interruptions": self._compute_interruptions(user_segs, other_segs),
             "filler_words": self._compute_filler_words(user_segs),
-            "turn_dynamics": self._compute_turn_dynamics(user_segs, other_segs),
+            "turn_dynamics": turn_dynamics,
             "pitch_features": self._compute_pitch_features(user_segs),
             "engagement_proxy": self._compute_engagement_proxy(other_segs),
             "vocal_energy": self._compute_vocal_energy(user_segs),
             "speech_acceleration": self._compute_speech_acceleration(user_segs),
-            "questions": self._compute_questions(user_segs, other_segs),
+            "questions": questions,
             "monologue": self._compute_monologue(user_segs),
             "vocabulary_richness": self._compute_vocabulary_richness(user_segs),
             "silence_ratio": self._compute_silence_ratio(user_segs, all_other_segs),
             "crosstalk": self._compute_crosstalk(user_segs, other_segs),
-            "timeline": self._build_timeline(user_segs)
+            "timeline": self._build_timeline(user_segs),
+            "hedging": self._compute_hedging(user_segs),
+            "directness": self._compute_directness(user_segs),
+            "question_impact": self._compute_question_impact(user_segs, all_other_segs),
+            "drive_vs_follow": self._compute_drive_vs_follow(
+                user_segs, other_segs, all_other_segs, turn_dynamics, questions
+            ),
+            "building_on_others": self._compute_building_on_others(user_segs, all_other_segs),
         }
 
         # Add notable signals — which ones stand out most
@@ -177,12 +213,23 @@ class SignalExtractor:
             }
         }
 
+    def _build_all_turns(self, user_segs, other_segs) -> list:
+        """Chronologically ordered turn sequence across speakers.
+
+        Pass `other_segs` (the single dyadic partner) for dyadic-only signals, to
+        match existing behavior — or `all_other_segs` for room-wide signals. Each
+        turn carries its segment's real `speaker` label (never collapsed to
+        `self.other_speaker`), so this stays correct for multi-speaker meetings —
+        CLAUDE.md: never collapse a multi-party meeting to one arbitrary "other".
+        """
+        turns = [{"speaker": self.user_speaker, "start": s["start"], "end": s["end"],
+                  "text": s.get("text", ""), "words": s.get("words", [])} for s in user_segs]
+        turns += [{"speaker": s["speaker"], "start": s["start"], "end": s["end"],
+                   "text": s.get("text", ""), "words": s.get("words", [])} for s in other_segs]
+        return sorted(turns, key=lambda x: x["start"])
+
     def _compute_interruptions(self, user_segs, other_segs) -> dict:
-        all_turns = sorted(
-            [{"speaker": self.user_speaker, "start": s["start"], "end": s["end"]} for s in user_segs] +
-            [{"speaker": self.other_speaker, "start": s["start"], "end": s["end"]} for s in other_segs if self.other_speaker],
-            key=lambda x: x["start"]
-        )
+        all_turns = self._build_all_turns(user_segs, other_segs)
 
         user_interrupts_other = 0
         other_interrupts_user = 0
@@ -206,6 +253,175 @@ class SignalExtractor:
         return {
             "user_interrupted_other": user_interrupts_other,
             "user_was_interrupted": other_interrupts_user
+        }
+
+    def _compute_hedging(self, user_segs) -> dict:
+        all_text = " ".join(s.get("text", "").lower() for s in user_segs)
+        all_words_count = sum(len(s.get("words", [])) for s in user_segs)
+
+        hedge_counts = {}
+        total_hedges = 0
+        for phrase in self.HEDGING_PHRASES:
+            count = len(re.findall(r'\b' + phrase + r'\b', all_text))
+            if count > 0:
+                hedge_counts[phrase] = count
+                total_hedges += count
+
+        return {
+            "total_count": total_hedges,
+            "rate_per_100_words": round((total_hedges / all_words_count * 100), 2) if all_words_count > 0 else 0,
+            "breakdown": hedge_counts
+        }
+
+    def _compute_directness(self, user_segs) -> dict:
+        all_text = " ".join(s.get("text", "").lower() for s in user_segs)
+        all_words_count = sum(len(s.get("words", [])) for s in user_segs)
+
+        marker_counts = {}
+        total_markers = 0
+        for marker in self.DIRECT_MARKERS:
+            count = len(re.findall(r'\b' + marker + r'\b', all_text))
+            if count > 0:
+                marker_counts[marker] = count
+                total_markers += count
+
+        return {
+            "total_count": total_markers,
+            "rate_per_100_words": round((total_markers / all_words_count * 100), 2) if all_words_count > 0 else 0,
+            "breakdown": marker_counts
+        }
+
+    def _compute_question_impact(self, user_segs, all_other_segs) -> dict:
+        """Did the room pick up the user's questions? Uses the room-wide turn
+        sequence (any participant, not just the primary dyadic partner)."""
+        all_turns = self._build_all_turns(user_segs, all_other_segs)
+
+        total_questions = 0
+        picked_up = 0
+        pickup_latencies = []
+
+        for i, turn in enumerate(all_turns):
+            if turn["speaker"] != self.user_speaker:
+                continue
+            text = turn["text"].lower()
+            is_question = "?" in text or any(
+                re.search(r'\b' + w + r'\b', text) for w in self.QUESTION_WORDS
+            )
+            if not is_question:
+                continue
+            total_questions += 1
+
+            # Next turn from a different speaker, within the same 5.0s window
+            # _compute_pauses's response_latency already uses.
+            for later in all_turns[i + 1:]:
+                if later["speaker"] == self.user_speaker:
+                    continue
+                gap = later["start"] - turn["end"]
+                if gap >= 5.0:
+                    break
+                if gap < 0:
+                    continue
+                # Substantive reply — more than a one-word backchannel ("yeah"/"haan").
+                if len(later.get("words", [])) >= 4:
+                    picked_up += 1
+                    pickup_latencies.append(gap)
+                break
+
+        return {
+            "total_user_questions": total_questions,
+            "questions_picked_up": picked_up,
+            "pickup_rate": round(picked_up / total_questions, 3) if total_questions > 0 else None,
+            "avg_pickup_latency_s": round(float(np.mean(pickup_latencies)), 3) if pickup_latencies else None,
+        }
+
+    def _compute_drive_vs_follow(self, user_segs, other_segs, all_other_segs, turn_dynamics, questions) -> dict:
+        """Composite of three already-computed signals — a single proxy (e.g. just
+        "turns not preceded by a question") is too thin on its own; this reuses the
+        same inputs dimension_scorer.py's _analyze_driver already treats as a
+        reasonable way to operationalize "who drove" in this codebase."""
+        all_turns = self._build_all_turns(user_segs, all_other_segs)
+
+        user_turns_total = 0
+        user_turns_initiated = 0
+        for i, turn in enumerate(all_turns):
+            if turn["speaker"] != self.user_speaker:
+                continue
+            user_turns_total += 1
+            prev = all_turns[i - 1] if i > 0 else None
+            preceded_by_question = bool(
+                prev and prev["speaker"] != self.user_speaker and "?" in prev["text"].lower()
+            )
+            if not preceded_by_question:
+                user_turns_initiated += 1
+
+        initiation_fraction = round(user_turns_initiated / user_turns_total, 3) if user_turns_total > 0 else 0.5
+
+        avg_user_len = turn_dynamics.get("avg_user_turn_length_s", 0)
+        avg_other_len = turn_dynamics.get("avg_other_turn_length_s", 0)
+        total_len = avg_user_len + avg_other_len
+        turn_length_asymmetry = round(avg_user_len / total_len, 3) if total_len > 0 else 0.5
+
+        user_q = questions.get("user_questions_asked", 0)
+        other_q = questions.get("other_questions_asked", 0)
+        total_q = user_q + other_q
+        question_asymmetry = round(user_q / total_q, 3) if total_q > 0 else 0.5
+
+        drive_score = round(
+            0.4 * initiation_fraction + 0.3 * turn_length_asymmetry + 0.3 * question_asymmetry, 3
+        )
+
+        return {
+            "drive_score": drive_score,
+            "initiation_fraction": initiation_fraction,
+            "turn_length_asymmetry": turn_length_asymmetry,
+            "question_asymmetry": question_asymmetry,
+        }
+
+    def _compute_building_on_others(self, user_segs, all_other_segs) -> dict:
+        """Approximate proxy — marker phrases + lexical overlap with the immediately
+        preceding other-speaker turn, not semantic reasoning. Two components combined
+        via union (either counts), since a user could do one without the other."""
+        all_turns = self._build_all_turns(user_segs, all_other_segs)
+
+        total_user_turns = 0
+        marker_matches = 0
+        overlap_matches = 0
+        building_on_count = 0
+
+        for i, turn in enumerate(all_turns):
+            if turn["speaker"] != self.user_speaker:
+                continue
+            total_user_turns += 1
+            text = turn["text"].lower()
+
+            has_marker = any(text.startswith(m) for m in self.BUILDING_ON_MARKERS)
+            if has_marker:
+                marker_matches += 1
+
+            has_overlap = False
+            prev = all_turns[i - 1] if i > 0 else None
+            if prev and prev["speaker"] != self.user_speaker:
+                prev_words = {
+                    w for w in re.findall(r"[a-z']+", prev["text"].lower())
+                    if len(w) > 3 and w not in self.STOPWORDS
+                }
+                curr_words = {
+                    w for w in re.findall(r"[a-z']+", text)
+                    if len(w) > 3 and w not in self.STOPWORDS
+                }
+                if len(prev_words & curr_words) >= 2:
+                    has_overlap = True
+                    overlap_matches += 1
+
+            if has_marker or has_overlap:
+                building_on_count += 1
+
+        return {
+            "building_on_rate": round(building_on_count / total_user_turns, 3) if total_user_turns > 0 else 0,
+            "marker_matches": marker_matches,
+            "lexical_overlap_matches": overlap_matches,
+            "total_user_turns": total_user_turns,
+            "interpretation_note": "approximate proxy — marker phrases + lexical overlap, not semantic reasoning",
         }
 
     def _compute_filler_words(self, user_segs) -> dict:
