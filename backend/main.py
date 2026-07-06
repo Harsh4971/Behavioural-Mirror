@@ -610,6 +610,7 @@ async def start_prepare_session(
     # Transcribed independently in _run_prepare_job and never merged into the tab-based
     # transcript/diarization fields; it's proof-of-capture only at this stage.
     mic_audio_path = None
+    mic_duration_s = None
     if mic_audio is not None:
         mic_temp_path = f"{UPLOAD_DIR}/{session_id}_mic_temp"
         mic_audio_path = f"{UPLOAD_DIR}/{session_id}_mic.wav"
@@ -622,7 +623,12 @@ async def start_prepare_session(
                 capture_output=True
             )
             os.remove(mic_temp_path)
-            print(f"[{_sid(session_id)}] ▶ Mic audio received ({len(mic_contents)} bytes)")
+            with wave.open(mic_audio_path, "r") as _mic_wf:
+                mic_duration_s = _mic_wf.getnframes() / _mic_wf.getframerate()
+            print(
+                f"[{_sid(session_id)}] ▶ Mic audio received ({len(mic_contents)} bytes, "
+                f"{mic_duration_s:.1f}s after conversion)"
+            )
         else:
             mic_audio_path = None
 
@@ -631,7 +637,8 @@ async def start_prepare_session(
 
     threading.Thread(
         target=_run_prepare_job,
-        args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline, mic_audio_path),
+        args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline,
+              mic_audio_path, mic_duration_s),
         daemon=True
     ).start()
     _start_job_timeout(session_id, session_id)
@@ -694,7 +701,7 @@ def _fill_speaker_gaps(diarization: list, total_duration: float, user_label: str
 
 
 def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s=None,
-                      speaker_timeline=None, mic_audio_path=None):
+                      speaker_timeline=None, mic_audio_path=None, mic_duration_s=None):
     def emit(step, message):
         if session_id in _jobs:
             _jobs[session_id].put({"event": "progress", "step": step, "message": message})
@@ -740,7 +747,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
                     "Gap-fill will be used (may inflate user talk ratio).",
                     _sid(session_id),
                 )
-            emit("transcribing", "Transcribing audio with Whisper…")
+            emit("transcribing", "Transcribing audio with Deepgram…")
             transcript = transcriber.transcribe(audio_path)
             logger.info(
                 "[%s]    Transcription done: %d segments, ~%d words",
@@ -762,7 +769,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         else:
             # ── Standard path: parallel transcription + pyannote diarization ────────
             logger.info("[%s] 1/3 Transcribing + diarizing (pyannote path)...", _sid(session_id))
-            emit("transcribing", "Transcribing audio with Whisper…")
+            emit("transcribing", "Transcribing audio with Deepgram…")
 
             with ThreadPoolExecutor(max_workers=2) as pool:
                 f_transcript = pool.submit(transcriber.transcribe, audio_path)
@@ -884,9 +891,13 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         if mic_future:
             try:
                 mic_transcript = mic_future.result()
+                mic_segs = mic_transcript.get("segments", [])
+                last_end = mic_segs[-1]["end"] if mic_segs else 0.0
                 logger.info(
-                    "[%s]    Mic transcription done: %d segments",
-                    _sid(session_id), len(mic_transcript.get("segments", [])),
+                    "[%s]    Mic transcription done: %d segments — audio duration %.1fs, "
+                    "last transcribed word ends at %.1fs (gap: %.1fs)",
+                    _sid(session_id), len(mic_segs),
+                    mic_duration_s or 0.0, last_end, (mic_duration_s or 0.0) - last_end,
                 )
             except Exception as mic_err:
                 logger.error("[%s]    ✕ Mic transcription FAILED: %s", _sid(session_id), mic_err)
