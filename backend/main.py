@@ -712,25 +712,19 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
 
         # ── Mic transcript (the user's own voice) — independent of the tab/room pipeline ──
         # Proof-only for now: transcribed and logged/returned, never merged into the
-        # tab-based transcript/diarization/merged fields below. Raw mic audio is deleted
-        # immediately after transcription, per the "discard room+mic audio after feature
-        # extraction" rule.
-        mic_transcript = None
+        # tab-based transcript/diarization/merged fields below. Kicked off in a background
+        # thread so it runs CONCURRENTLY with the tab transcribe/diarize pipeline below rather
+        # than adding its full duration on top — halves the extra latency from adding a second
+        # ASR call, which otherwise raises the odds of the cached auth token going stale before
+        # /api/finalize/start is reached. Raw mic audio is deleted immediately once resolved,
+        # per the "discard room+mic audio after feature extraction" rule.
+        mic_pool = None
+        mic_future = None
         if mic_audio_path:
-            try:
-                logger.info("[%s] Transcribing MIC audio (user's own voice)...", _sid(session_id))
-                emit("transcribing_mic", "Transcribing your voice…")
-                mic_transcript = transcriber.transcribe(mic_audio_path)
-                logger.info(
-                    "[%s]    Mic transcription done: %d segments",
-                    _sid(session_id), len(mic_transcript.get("segments", [])),
-                )
-            except Exception as mic_err:
-                logger.error("[%s]    ✕ Mic transcription FAILED: %s", _sid(session_id), mic_err)
-                mic_transcript = None
-            finally:
-                if os.path.exists(mic_audio_path):
-                    os.remove(mic_audio_path)
+            logger.info("[%s] Transcribing MIC audio (user's own voice) in parallel...", _sid(session_id))
+            emit("transcribing_mic", "Transcribing your voice…")
+            mic_pool = ThreadPoolExecutor(max_workers=1)
+            mic_future = mic_pool.submit(transcriber.transcribe, mic_audio_path)
 
         if speaker_timeline:
             # ── WebRTC path: skip pyannote, use provided timeline + transcribe only ────
@@ -790,6 +784,9 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             _cancelled.discard(session_id)
             _cancel_job_timeout(session_id)
             if os.path.exists(audio_path): os.remove(audio_path)
+            if mic_pool:
+                mic_pool.shutdown(wait=False)
+                if os.path.exists(mic_audio_path): os.remove(mic_audio_path)
             logger.info("[%s] ✕ Cancelled after transcription", _sid(session_id))
             return
 
@@ -883,6 +880,22 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
 
             detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
+        mic_transcript = None
+        if mic_future:
+            try:
+                mic_transcript = mic_future.result()
+                logger.info(
+                    "[%s]    Mic transcription done: %d segments",
+                    _sid(session_id), len(mic_transcript.get("segments", [])),
+                )
+            except Exception as mic_err:
+                logger.error("[%s]    ✕ Mic transcription FAILED: %s", _sid(session_id), mic_err)
+                mic_transcript = None
+            finally:
+                mic_pool.shutdown(wait=False)
+                if os.path.exists(mic_audio_path):
+                    os.remove(mic_audio_path)
+
         mic_transcript_text = " ".join(
             seg["text"] for seg in mic_transcript.get("segments", [])
         ).strip() if mic_transcript else None
@@ -920,6 +933,10 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         _cancel_job_timeout(session_id)
         if os.path.exists(audio_path):
             os.remove(audio_path)
+        if mic_pool:
+            mic_pool.shutdown(wait=False)
+        if mic_audio_path and os.path.exists(mic_audio_path):
+            os.remove(mic_audio_path)
         logger.error("[%s] ✕ Prepare error: %s\n%s", _sid(session_id), e, traceback.format_exc())
         if session_id in _jobs:
             _jobs[session_id].put({"event": "error", "message": str(e)})

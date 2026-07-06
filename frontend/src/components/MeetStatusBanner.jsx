@@ -1,6 +1,56 @@
 import { useState, useEffect, useRef } from "react"
 import { supabase } from "../lib/supabase"
 
+// Resolves to 'granted', 'denied', or 'dismissed'.
+// Side panels (and popups/offscreen docs) can't render the getUserMedia permission prompt —
+// it silently rejects with no UI. If permission isn't already granted, this opens a normal
+// extension tab (request-mic.html) that *can* show the prompt, and waits for its result.
+async function ensureMicPermission() {
+  if (typeof navigator.permissions?.query !== "function") {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true })
+      s.getTracks().forEach(t => t.stop())
+      return "granted"
+    } catch {
+      return "dismissed"
+    }
+  }
+
+  let status
+  try {
+    status = await navigator.permissions.query({ name: "microphone" })
+  } catch {
+    status = null
+  }
+  if (status?.state === "granted") return "granted"
+  if (status?.state === "denied") return "denied"
+
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("request-mic.html") }, (tab) => {
+      const tabId = tab?.id
+      let settled = false
+
+      function onMessage(msg) {
+        if (msg.action !== "mic_permission_result") return
+        settled = true
+        chrome.runtime.onMessage.removeListener(onMessage)
+        chrome.tabs.onRemoved.removeListener(onRemoved)
+        resolve(msg.granted ? "granted" : "dismissed")
+      }
+      function onRemoved(closedTabId) {
+        if (closedTabId !== tabId || settled) return
+        settled = true
+        chrome.runtime.onMessage.removeListener(onMessage)
+        chrome.tabs.onRemoved.removeListener(onRemoved)
+        resolve("dismissed")
+      }
+
+      chrome.runtime.onMessage.addListener(onMessage)
+      chrome.tabs.onRemoved.addListener(onRemoved)
+    })
+  })
+}
+
 export default function MeetStatusBanner({ onViewHistory }) {
   const [chunks, setChunks] = useState([])
   const [recording, setRecording] = useState(false)
@@ -110,15 +160,19 @@ export default function MeetStatusBanner({ onViewHistory }) {
     setRecordError(null)
     if (!meetTabId) { setRecordError('No Meet tab found'); return }
 
-    // Bootstrap mic permission from this visible side-panel page — the offscreen document
-    // that does the actual mic recording can't show a permission prompt itself. Once granted
-    // here, the grant applies to the whole extension origin (chrome-extension://<id>), so the
-    // offscreen doc's later getUserMedia call succeeds without re-prompting.
-    try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      micStream.getTracks().forEach(t => t.stop())
-    } catch (e) {
-      setRecordError('Microphone access denied. Mirror needs mic access to hear you — please allow it and try again.')
+    // Bootstrap mic permission before recording — the offscreen document that does the actual
+    // mic recording can't show a permission prompt itself, and neither can this side panel
+    // (getUserMedia's prompt only renders in a normal extension tab). ensureMicPermission opens
+    // one when needed and waits for the result. Once granted, the grant applies to the whole
+    // extension origin (chrome-extension://<id>), so the offscreen doc's later getUserMedia
+    // call succeeds without re-prompting.
+    const micStatus = await ensureMicPermission()
+    if (micStatus !== 'granted') {
+      setRecordError(
+        micStatus === 'denied'
+          ? 'Microphone access is blocked for Mirror. Open chrome://extensions → Mirror → Details → Site settings, allow Microphone, then try again.'
+          : 'Microphone access is required. Please allow it in the tab that opened, then try again.'
+      )
       return
     }
 

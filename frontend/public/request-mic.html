@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Mirror — Microphone Access</title>
+  <style>
+    body {
+      margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #0f1117; color: #c4c2d8; font-family: system-ui, -apple-system, sans-serif;
+      text-align: center;
+    }
+    .box { max-width: 360px; padding: 24px; }
+    h1 { font-size: 18px; color: #f0eeff; margin: 0 0 12px; }
+    p { font-size: 14px; color: #8b89aa; line-height: 1.6; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1 id="title">Requesting microphone access…</h1>
+    <p id="message">Please allow microphone access in the prompt so Mirror can hear you.</p>
+  </div>
+  <script src="request-mic.js"></script>
+</body>
+</html>
