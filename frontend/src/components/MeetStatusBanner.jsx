@@ -106,9 +106,21 @@ export default function MeetStatusBanner({ onViewHistory }) {
     }
   }, [])
 
-  function handleStartRecordingConfirmed() {
+  async function handleStartRecordingConfirmed() {
     setRecordError(null)
     if (!meetTabId) { setRecordError('No Meet tab found'); return }
+
+    // Bootstrap mic permission from this visible side-panel page — the offscreen document
+    // that does the actual mic recording can't show a permission prompt itself. Once granted
+    // here, the grant applies to the whole extension origin (chrome-extension://<id>), so the
+    // offscreen doc's later getUserMedia call succeeds without re-prompting.
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      micStream.getTracks().forEach(t => t.stop())
+    } catch (e) {
+      setRecordError('Microphone access denied. Mirror needs mic access to hear you — please allow it and try again.')
+      return
+    }
 
     const recMode = webrtcReady ? "webrtc" : "tabcapture"
 

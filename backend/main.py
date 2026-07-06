@@ -552,6 +552,7 @@ async def start_prepare_session(
     audio: UploadFile = File(...),
     filename: str = Form("recording"),
     speaker_timeline: Optional[str] = Form(None),
+    mic_audio: Optional[UploadFile] = File(None),
     user_id: str = Depends(get_current_user)
 ):
     _cleanup_stale_cache()
@@ -605,12 +606,32 @@ async def start_prepare_session(
         except Exception:
             parsed_timeline = None
 
+    # Mic stream (the user's own voice) — saved separately from the tab/room audio above.
+    # Transcribed independently in _run_prepare_job and never merged into the tab-based
+    # transcript/diarization fields; it's proof-of-capture only at this stage.
+    mic_audio_path = None
+    if mic_audio is not None:
+        mic_temp_path = f"{UPLOAD_DIR}/{session_id}_mic_temp"
+        mic_audio_path = f"{UPLOAD_DIR}/{session_id}_mic.wav"
+        mic_contents = await mic_audio.read()
+        if mic_contents:
+            with open(mic_temp_path, "wb") as f:
+                f.write(mic_contents)
+            subprocess.run(
+                ["ffmpeg", "-i", mic_temp_path, "-ar", "16000", "-ac", "1", "-y", mic_audio_path],
+                capture_output=True
+            )
+            os.remove(mic_temp_path)
+            print(f"[{_sid(session_id)}] ▶ Mic audio received ({len(mic_contents)} bytes)")
+        else:
+            mic_audio_path = None
+
     job_q: stdlib_queue.Queue = stdlib_queue.Queue()
     _jobs[session_id] = job_q
 
     threading.Thread(
         target=_run_prepare_job,
-        args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline),
+        args=(session_id, audio_path, user_id, filename, _duration_s, parsed_timeline, mic_audio_path),
         daemon=True
     ).start()
     _start_job_timeout(session_id, session_id)
@@ -672,7 +693,8 @@ def _fill_speaker_gaps(diarization: list, total_duration: float, user_label: str
     return filled
 
 
-def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s=None, speaker_timeline=None):
+def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s=None,
+                      speaker_timeline=None, mic_audio_path=None):
     def emit(step, message):
         if session_id in _jobs:
             _jobs[session_id].put({"event": "progress", "step": step, "message": message})
@@ -684,7 +706,31 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             _cancelled.discard(session_id)
             _cancel_job_timeout(session_id)
             logger.info("[%s] ✕ Cancelled before start", _sid(session_id))
+            if mic_audio_path and os.path.exists(mic_audio_path):
+                os.remove(mic_audio_path)
             return
+
+        # ── Mic transcript (the user's own voice) — independent of the tab/room pipeline ──
+        # Proof-only for now: transcribed and logged/returned, never merged into the
+        # tab-based transcript/diarization/merged fields below. Raw mic audio is deleted
+        # immediately after transcription, per the "discard room+mic audio after feature
+        # extraction" rule.
+        mic_transcript = None
+        if mic_audio_path:
+            try:
+                logger.info("[%s] Transcribing MIC audio (user's own voice)...", _sid(session_id))
+                emit("transcribing_mic", "Transcribing your voice…")
+                mic_transcript = transcriber.transcribe(mic_audio_path)
+                logger.info(
+                    "[%s]    Mic transcription done: %d segments",
+                    _sid(session_id), len(mic_transcript.get("segments", [])),
+                )
+            except Exception as mic_err:
+                logger.error("[%s]    ✕ Mic transcription FAILED: %s", _sid(session_id), mic_err)
+                mic_transcript = None
+            finally:
+                if os.path.exists(mic_audio_path):
+                    os.remove(mic_audio_path)
 
         if speaker_timeline:
             # ── WebRTC path: skip pyannote, use provided timeline + transcribe only ────
@@ -837,6 +883,10 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
 
             detected_speaker = voiceprint_match or (speaker_ids[0] if speaker_ids else "SPEAKER_00")
 
+        mic_transcript_text = " ".join(
+            seg["text"] for seg in mic_transcript.get("segments", [])
+        ).strip() if mic_transcript else None
+
         _prepare_cache[session_id] = {
             "audio_path": audio_path,
             "transcript": transcript,
@@ -847,6 +897,8 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             "detected_speaker": detected_speaker,
             "voiceprint_confidence": voiceprint_confidence,
             "created_at": time.time(),
+            # NEW, separate from the tab-based transcript above — never merged into it.
+            "mic_transcript": mic_transcript,
         }
 
         result_data = {
@@ -855,6 +907,7 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             "detected_speaker": detected_speaker,
             "voiceprint_match": voiceprint_match,
             "voiceprint_confidence": voiceprint_confidence,
+            "mic_transcript": mic_transcript_text,
         }
 
         _cancel_job_timeout(session_id)

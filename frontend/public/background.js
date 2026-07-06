@@ -339,7 +339,14 @@ async function handleStop() {
 
 // ── Upload chunk ──────────────────────────────────────────────────
 
-async function handleChunk({ base64, mimeType, chunkIndex }) {
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType || 'audio/webm' });
+}
+
+async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chunkIndex }) {
   const { mirror_token } = await getToken();
 
   if (!mirror_token) {
@@ -350,8 +357,9 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
   const startMin = chunkIndex * 15;
   const endMin = startMin + 15;
   const filename = `meet_${startMin}-${endMin}min.webm`;
+  const micFilename = `mic_${startMin}-${endMin}min.webm`;
 
-  console.log(`[mirror] Processing chunk ${chunkIndex} (${filename}), webrtcMode: ${webrtcMode}`);
+  console.log(`[mirror] Processing chunk ${chunkIndex} (${filename}), webrtcMode: ${webrtcMode}, hasMic: ${!!micBase64}`);
 
   // Track chunk state in local storage so popup can show progress
   await chrome.storage.local.set({
@@ -359,13 +367,8 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
   });
 
   try {
-    // Decode base64 back to binary Blob
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const audioBlob = new Blob([bytes], { type: mimeType || 'audio/webm' });
-
-    console.log(`[mirror] Chunk ${chunkIndex}: audio blob size = ${(audioBlob.size / 1024).toFixed(1)} KB`);
+    const audioBlob = base64ToBlob(tabBase64, tabMimeType);
+    console.log(`[mirror] Chunk ${chunkIndex}: tab audio blob size = ${(audioBlob.size / 1024).toFixed(1)} KB`);
 
     if (audioBlob.size === 0) {
       throw new Error('Audio blob is empty — no audio was captured. Check tab capture permissions.');
@@ -375,6 +378,12 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
     const form = new FormData();
     form.append('audio', audioBlob, filename);
     form.append('filename', filename);
+
+    if (micBase64) {
+      const micBlob = base64ToBlob(micBase64, micMimeType);
+      console.log(`[mirror] Chunk ${chunkIndex}: mic audio blob size = ${(micBlob.size / 1024).toFixed(1)} KB`);
+      form.append('mic_audio', micBlob, micFilename);
+    }
 
     // Include WebRTC speaker timeline if available for this chunk
     if (webrtcMode) {
@@ -420,6 +429,12 @@ async function handleChunk({ base64, mimeType, chunkIndex }) {
       mirror_token
     );
     console.log(`[mirror] Chunk ${chunkIndex}: prepare done — detected_speaker: ${prepResult.detected_speaker}`);
+
+    if (prepResult.mic_transcript) {
+      console.log(`[mirror] Chunk ${chunkIndex}: MIC TRANSCRIPT —`, prepResult.mic_transcript);
+    } else if (micBase64) {
+      console.warn(`[mirror] Chunk ${chunkIndex}: mic audio was uploaded but no mic_transcript came back from backend.`);
+    }
 
     const detectedSpeaker = prepResult.detected_speaker || 'SPEAKER_00';
 
