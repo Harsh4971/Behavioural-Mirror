@@ -114,7 +114,7 @@ def _cleanup_stale_cache():
 
 
 print("[startup] Loading models...")
-transcriber = Transcriber(api_key=os.getenv("GROQ_API_KEY"))
+transcriber = Transcriber(api_key=os.getenv("DEEPGRAM_API_KEY"))
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
 context_detector = ContextDetector(api_key=os.getenv("GROQ_API_KEY"))
