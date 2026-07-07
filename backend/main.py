@@ -38,6 +38,7 @@ from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.personality_synthesizer import PersonalitySynthesizer
 from pipeline.mirror_feed_synthesizer import MirrorFeedSynthesizer
+from pipeline.portrait_synthesizer import PortraitSynthesizer
 from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, compute_signal_evidence, extract_value
 from db.database import supabase_admin
 
@@ -123,35 +124,12 @@ dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
 personality_synth = PersonalitySynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 mirror_feed_synth = MirrorFeedSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
+portrait_synth = PortraitSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 print("[startup] All models loaded. Server ready.")
 
 # In-memory caches — cleared on server restart, Supabase is the durable layer
-_personality_cache: dict = {}   # key = "{user_id}:{session_count}:v{version}"
+_portrait_cache: dict = {}      # key = "{user_id}:{session_count}:v{version}"
 _mirror_feed_cache: dict = {}   # key = "{user_id}:{session_count}"
-
-
-def _compute_dim_averages(parsed: list) -> dict:
-    score_lists: dict = {k: [] for k in (
-        "confidence", "nervousness", "assertiveness",
-        "listening_quality", "empathy", "clarity", "adaptability",
-    )}
-    paths = {
-        "confidence":      ("emotional_state",            "confidence"),
-        "nervousness":     ("emotional_state",            "nervousness"),
-        "assertiveness":   ("communication_effectiveness","assertiveness"),
-        "listening_quality":("communication_effectiveness","listening_quality"),
-        "empathy":         ("relational_dynamics",        "empathy"),
-        "clarity":         ("communication_effectiveness","clarity"),
-        "adaptability":    ("communication_effectiveness","adaptability"),
-    }
-    for p in parsed:
-        dims = p["dims"]
-        for key, (group, sub) in paths.items():
-            try:
-                score_lists[key].append(dims[group][sub]["score"])
-            except (KeyError, TypeError):
-                pass
-    return {k: round(sum(v) / len(v), 2) if v else 3.0 for k, v in score_lists.items()}
 
 
 _CONTEXT_BLIND_SPOTS: dict = {
@@ -195,72 +173,81 @@ def _compute_blind_spots(recorded_contexts: set) -> list:
             for g in gaps[:3]]
 
 
-def _compute_session_delta(old: dict, new: dict) -> dict | None:
-    if not old or not new:
-        return None
-    old_scores = {d["key"]: d["score"] for d in old.get("dimensions", [])}
-    changes = []
-    for dim in new.get("dimensions", []):
-        old_score = old_scores.get(dim["key"])
-        if old_score is None:
-            continue
-        diff = dim["score"] - old_score
-        if abs(diff) >= 8:
-            changes.append({
-                "dimension": dim["name"],
-                "old_score": old_score,
-                "new_score": dim["score"],
-                "diff": diff,
-                "direction": "up" if diff > 0 else "down",
-            })
-    if not changes:
-        return None
-    changes.sort(key=lambda x: abs(x["diff"]), reverse=True)
-    return {"changes": changes[:3]}
+def _compute_profile_evidence(parsed: list) -> dict:
+    """Evidence-gated signal aggregation for the You page's standing portrait.
+    Reuses the same `parsed` session list /api/profile already fetched — no new
+    query. Computes 'overall' (pooled across all contexts) and 'by_context'
+    (grouped) evidence for each of the 9 relational signals, per CLAUDE.md rule
+    #3 (gate on accumulated evidence per signal, never session count) and rule
+    #4 (self-relative only — no population comparison anywhere here).
 
+    Each steady signal in `by_context` (not `overall`) also gets a recent-vs-
+    established mean comparison (last 3 sessions vs the full rolling-window mean,
+    within that single context) — this powers Home feed "progress" cards later.
+    Deliberately NOT computed on the cross-context pool: a run of recent sessions
+    in a different context would drag the "recent" average in a way that has
+    nothing to do with genuine behavioral change.
+    """
+    from collections import defaultdict as _dd
 
+    def _signal_values(sessions):
+        values_by_signal = {k: [] for k in SIGNAL_EVIDENCE_CONFIG}
+        for p in sessions:
+            for signal_key in SIGNAL_EVIDENCE_CONFIG:
+                try:
+                    values_by_signal[signal_key].append(extract_value(signal_key, p["sig"]))
+                except (KeyError, TypeError):
+                    pass
+        return values_by_signal
 
+    def _evidence_for(sessions, compute_shift: bool) -> dict:
+        values_by_signal = _signal_values(sessions)
+        result = {}
+        for signal_key, values in values_by_signal.items():
+            ev = compute_signal_evidence(signal_key, values)  # filters None internally
+            non_none = [v for v in values if v is not None]  # chronological, oldest→newest
+            # recent-vs-established only computed here for a SINGLE context (see
+            # by_context below) — computing it on the cross-context pool is
+            # misleading: a run of e.g. social sessions can drag the "recent"
+            # average down for reasons that have nothing to do with a genuine
+            # behavioral shift, just a different conversation type happening
+            # recently. Self-relative framing has to stay within one context.
+            if compute_shift and ev["is_steady"] and len(non_none) >= 3:
+                recent = non_none[-3:]
+                ev["recent_mean"] = round(float(np.mean(recent)), 3)
+                ev["shift_pct"] = (
+                    round((ev["recent_mean"] - ev["mean"]) / ev["mean"] * 100, 1)
+                    if ev["mean"] else None
+                )
+            else:
+                ev["recent_mean"] = None
+                ev["shift_pct"] = None
+            result[signal_key] = ev
+        return result
 
-def _build_sessions_data(parsed: list, dim_paths: dict) -> list:
-    sessions = []
+    overall = _evidence_for(parsed, compute_shift=False)
+
+    ctx_map: dict = _dd(list)
     for p in parsed:
-        try:
-            from datetime import datetime as _dt
-            date_str = _dt.fromisoformat(p["date"].replace("Z", "+00:00")).strftime("%b %d")
-        except Exception:
-            date_str = "recent"
+        ctx_map[p["context"]].append(p)
+    by_context = {ctx: _evidence_for(items, compute_shift=True) for ctx, items in ctx_map.items()}
 
-        dim_scores = {}
-        for key, (group, sub) in dim_paths.items():
-            try:
-                dim_scores[key] = p["dims"][group][sub]["score"]
-            except (KeyError, TypeError):
-                pass
-
-        sessions.append({
-            "date":            date_str,
-            "context":         p["context"],
-            "dim_scores":      dim_scores,
-            "filler_rate":     p["sig"]["filler_words"]["rate_per_100_words"],
-            "talk_ratio_pct":  round(p["sig"]["talk_ratio"]["user_ratio"] * 100),
-            "notable_pattern": p["ins"].get("notable_pattern", ""),
-            "fingerprint":     p.get("fingerprint") or "",
-        })
-    return sessions
+    return {"overall": overall, "by_context": by_context}
 
 
-def _get_or_synthesize_personality(user_id: str, session_count: int,
-                                   profile_data: dict, dim_averages: dict,
-                                   sessions_data: list = None) -> dict:
-    _SYNTHESIS_VERSION = 7  # bump when prompt changes to invalidate old cache
-    cache_key = f"{user_id}:{session_count}:v{_SYNTHESIS_VERSION}"
+def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict,
+                                blind_spots: list) -> dict:
+    """Evidence-based replacement for the old dimension-scoring personality
+    synthesis (retired). Reuses the user_profiles.personality_json /
+    session_count_at_synthesis columns (repurposed, different shape — no schema
+    change needed) since nothing else writes to them anymore.
+    """
+    _PORTRAIT_VERSION = 1  # bump when the portrait prompt/shape changes
+    cache_key = f"{user_id}:{session_count}:v{_PORTRAIT_VERSION}"
 
-    if cache_key in _personality_cache:
-        return _personality_cache[cache_key]
+    if cache_key in _portrait_cache:
+        return _portrait_cache[cache_key]
 
-    old_personality = None
-
-    # Try Supabase persistence (table: user_profiles)
     try:
         result = supabase_admin.table("user_profiles") \
             .select("personality_json, session_count_at_synthesis") \
@@ -268,38 +255,27 @@ def _get_or_synthesize_personality(user_id: str, session_count: int,
         if result.data:
             row = result.data[0]
             raw_pj = row.get("personality_json")
-            if raw_pj and row.get("session_count_at_synthesis") == session_count * _SYNTHESIS_VERSION:
-                personality = json.loads(raw_pj)
-                _personality_cache[cache_key] = personality
-                return personality
-            elif raw_pj:
-                # Session count changed — preserve old synthesis for delta calculation
-                try:
-                    old_personality = json.loads(raw_pj)
-                except Exception:
-                    pass
+            if raw_pj and row.get("session_count_at_synthesis") == session_count * _PORTRAIT_VERSION:
+                portrait = json.loads(raw_pj)
+                _portrait_cache[cache_key] = portrait
+                return portrait
     except Exception:
         pass
 
-    personality = personality_synth.synthesize(profile_data, dim_averages, sessions_data)
-
-    delta = _compute_session_delta(old_personality, personality)
-    if delta:
-        personality["last_delta"] = delta
-
-    _personality_cache[cache_key] = personality
+    portrait = portrait_synth.synthesize(evidence, blind_spots, session_count)
+    _portrait_cache[cache_key] = portrait
 
     try:
         supabase_admin.table("user_profiles").upsert({
             "user_id": user_id,
-            "session_count_at_synthesis": session_count * _SYNTHESIS_VERSION,
-            "personality_json": json.dumps(personality),
+            "session_count_at_synthesis": session_count * _PORTRAIT_VERSION,
+            "personality_json": json.dumps(portrait),
             "updated_at": _utcnow(),
         }).execute()
     except Exception:
         pass
 
-    return personality
+    return portrait
 
 
 # ── Auth ──────────────────────────────────────────────────────────
@@ -1088,9 +1064,9 @@ def _run_finalize_job(session_id, confirmed_speaker):
         del _prepare_cache[session_id]
 
         # Evict profile caches so the next GET /api/profile regenerates with the new session
-        for key in list(_personality_cache.keys()):
+        for key in list(_portrait_cache.keys()):
             if key.startswith(f"{user_id}:"):
-                del _personality_cache[key]
+                del _portrait_cache[key]
         for key in list(_mirror_feed_cache.keys()):
             if key.startswith(f"{user_id}:"):
                 del _mirror_feed_cache[key]
@@ -1309,6 +1285,11 @@ def get_trends(user_id: str = Depends(get_current_user)):
                 "interruptions_received": sig["interruptions"]["user_was_interrupted"],
                 "response_latency": sig["pauses"]["response_latency"]["mean_s"],
                 "vocab_richness": sig["vocabulary_richness"].get("type_token_ratio"),
+                "hedging_rate": sig.get("hedging", {}).get("rate_per_100_words"),
+                "directness_rate": sig.get("directness", {}).get("rate_per_100_words"),
+                "question_pickup_rate": sig.get("question_impact", {}).get("pickup_rate"),
+                "drive_score": sig.get("drive_vs_follow", {}).get("drive_score"),
+                "building_on_rate": sig.get("building_on_others", {}).get("building_on_rate"),
                 "dimensions": {},
             }
             for dim, dim_data in dims.items():
@@ -1355,37 +1336,11 @@ def get_profile(user_id: str = Depends(get_current_user)):
 
     n = len(parsed)
 
-    def _avg(fn):
-        vals = [v for v in (fn(p) for p in parsed) if v is not None]
-        return round(sum(vals) / len(vals), 2) if vals else None
-
-    overall = {
-        "talk_ratio":           _avg(lambda p: p["sig"]["talk_ratio"]["user_ratio"] * 100),
-        "wpm":                  _avg(lambda p: p["sig"]["speech_rate"]["overall_wpm"]),
-        "filler_rate":          _avg(lambda p: p["sig"]["filler_words"]["rate_per_100_words"]),
-        "interruptions_given":  _avg(lambda p: p["sig"]["interruptions"]["user_interrupted_other"]),
-        "silence_ratio":        _avg(lambda p: p["sig"]["silence_ratio"]["silence_ratio"] * 100),
-        "response_latency":     _avg(lambda p: p["sig"]["pauses"]["response_latency"]["mean_s"]),
-        "vocab_richness":       _avg(lambda p: p["sig"]["vocabulary_richness"].get("type_token_ratio")),
-    }
-
-    # Context-stratified averages (only contexts with 2+ sessions)
-    from collections import defaultdict as _dd
-    ctx_map: dict = _dd(list)
-    for p in parsed:
-        ctx_map[p["context"]].append(p)
-
-    by_context = {}
-    for ctx, items in ctx_map.items():
-        if len(items) >= 2:
-            by_context[ctx] = {
-                "count": len(items),
-                "talk_ratio":  round(sum(p["sig"]["talk_ratio"]["user_ratio"] * 100 for p in items) / len(items), 1),
-                "wpm":         round(sum(p["sig"]["speech_rate"]["overall_wpm"] for p in items) / len(items), 0),
-                "filler_rate": round(sum(p["sig"]["filler_words"]["rate_per_100_words"] for p in items) / len(items), 2),
-            }
-
-    # Pattern detection (needs 2+ sessions to establish consistency)
+    # Pattern detection (needs 2+ sessions to establish consistency) — kept only
+    # as an internal input to mirror_feed_synth below (NOT returned to the
+    # frontend; it's session-count-gated, not evidence-gated, so it stays out of
+    # the You page per CLAUDE.md rule #3. The Home feed rebuild will replace this
+    # mechanism with evidence-gated equivalents).
     patterns = []
     if n >= 2:
         talk_ratios = [p["sig"]["talk_ratio"]["user_ratio"] * 100 for p in parsed]
@@ -1482,41 +1437,67 @@ def get_profile(user_id: str = Depends(get_current_user)):
         if c >= 2
     ]
 
-    # Personality synthesis
-    _dim_paths = {
-        "confidence":       ("emotional_state",             "confidence"),
-        "nervousness":      ("emotional_state",             "nervousness"),
-        "assertiveness":    ("communication_effectiveness", "assertiveness"),
-        "listening_quality":("communication_effectiveness", "listening_quality"),
-        "empathy":          ("relational_dynamics",         "empathy"),
-        "clarity":          ("communication_effectiveness", "clarity"),
-        "adaptability":     ("communication_effectiveness", "adaptability"),
-    }
-    dim_averages  = _compute_dim_averages(parsed)
-    sessions_data = _build_sessions_data(parsed, _dim_paths)
-    profile_payload = {
-        "session_count": n,
-        "overall": overall,
-        "by_context": by_context,
-        "patterns": patterns,
-        "trends": trends,
-    }
-    personality = _get_or_synthesize_personality(user_id, n, profile_payload,
-                                                 dim_averages, sessions_data)
-
     # Blind spots — contexts the mirror hasn't seen yet
     recorded_contexts = set(p["context"] for p in parsed)
     blind_spots = _compute_blind_spots(recorded_contexts)
 
-    # Profile completeness: 60% from session depth, 40% from context variety
-    session_score  = min(n / 10, 1.0) * 60
-    context_score  = min(len(recorded_contexts) / 5, 1.0) * 40
-    completeness   = round(session_score + context_score)
-    if completeness < 25:   completeness_label = "Just starting"
-    elif completeness < 50: completeness_label = "Building"
-    elif completeness < 75: completeness_label = "Developing"
-    elif completeness < 90: completeness_label = "Established"
-    else:                   completeness_label = "Deep mirror"
+    # Evidence-based standing portrait (You page) — self-relative only, gated per
+    # signal on accumulated evidence (CLAUDE.md rules #3/#4). Replaces the old
+    # numeric dimension-scoring personality synthesis entirely — no invented
+    # dimensions, no 0-100 scores, no trait labels.
+    evidence = _compute_profile_evidence(parsed)
+    portrait_llm = _get_or_synthesize_portrait(user_id, n, evidence, blind_spots)
+    llm_notes_by_signal = {s["signal_key"]: s for s in portrait_llm.get("signals", [])}
+    llm_context_notes = {s["signal_key"]: s["note"] for s in portrait_llm.get("context_shifts", [])}
+
+    steady_signals = []
+    still_forming = []
+    for signal_key, ev in evidence["overall"].items():
+        label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
+        if ev["is_steady"]:
+            llm = llm_notes_by_signal.get(signal_key, {})
+            steady_signals.append({
+                "signal_key": signal_key,
+                "label": label,
+                "mean": ev["mean"],
+                "sample_count": ev["sample_count"],
+                "recent_mean": ev["recent_mean"],
+                "shift_pct": ev["shift_pct"],
+                "framing": llm.get("framing", "observation"),
+                "note": llm.get("note", ""),
+            })
+        else:
+            still_forming.append({
+                "signal_key": signal_key,
+                "label": label,
+                "sample_count": ev["sample_count"],
+                "min_needed": ev["min_samples_required"],
+            })
+
+    how_you_shift_by_context = []
+    for signal_key, note in llm_context_notes.items():
+        by_ctx = {
+            ctx: data[signal_key]["mean"]
+            for ctx, data in evidence["by_context"].items()
+            if data.get(signal_key, {}).get("is_steady")
+        }
+        if len(by_ctx) >= 2:
+            how_you_shift_by_context.append({
+                "signal_key": signal_key,
+                "label": SIGNAL_EVIDENCE_CONFIG[signal_key]["label"],
+                "by_context": by_ctx,
+                "note": note,
+            })
+
+    # Profile strength: fraction of the 9 signals with enough steady evidence —
+    # NOT session count / context variety, so it only grows when there's genuine
+    # self-relative evidence behind it. Same label scheme as before for familiarity.
+    strength_pct = round(100 * len(steady_signals) / len(SIGNAL_EVIDENCE_CONFIG))
+    if strength_pct < 25:   strength_label = "Just starting"
+    elif strength_pct < 50: strength_label = "Building"
+    elif strength_pct < 75: strength_label = "Developing"
+    elif strength_pct < 90: strength_label = "Established"
+    else:                   strength_label = "Deep mirror"
 
     _MF_VERSION = 6  # bump when tip field or prompt changes to invalidate old cache
     mf_cache_key = f"{user_id}:{n}:v{_MF_VERSION}"
@@ -1606,15 +1587,11 @@ def get_profile(user_id: str = Depends(get_current_user)):
     return {
         "insufficient_data": False,
         "session_count": n,
-        "overall": overall,
-        "by_context": by_context,
-        "patterns": patterns,
-        "trends": trends,
+        "profile_strength": {"pct": strength_pct, "label": strength_label},
+        "portrait": {"steady": steady_signals, "still_forming": still_forming},
+        "how_you_shift_by_context": how_you_shift_by_context,
         "recurring_coaching": recurring_coaching,
-        "personality": personality,
         "blind_spots": blind_spots,
-        "completeness": completeness,
-        "completeness_label": completeness_label,
         "mirror_feed": mirror_feed,
     }
 
@@ -1631,9 +1608,9 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     # Evict all cached profile data for this user — session count has changed
-    for key in list(_personality_cache.keys()):
+    for key in list(_portrait_cache.keys()):
         if key.startswith(f"{user_id}:"):
-            del _personality_cache[key]
+            del _portrait_cache[key]
     for key in list(_mirror_feed_cache.keys()):
         if key.startswith(f"{user_id}:"):
             del _mirror_feed_cache[key]

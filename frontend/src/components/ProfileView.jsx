@@ -21,38 +21,66 @@ const CONTEXT_LABELS = {
   first_date: "Deep Personal",
 }
 
+// Mirrors backend/pipeline/portrait_synthesizer.py's _SIGNAL_FORMAT — how to
+// render each signal's raw established mean as supporting evidence text.
+const SIGNAL_FORMAT = {
+  talk_ratio:          { scale: 100, digits: 0, unit: "% of speaking time" },
+  questions:           { scale: 1,   digits: 1, unit: " questions per session" },
+  speech_rate:         { scale: 1,   digits: 0, unit: " wpm" },
+  response_latency:    { scale: 1,   digits: 1, unit: "s response latency" },
+  hedging:             { scale: 1,   digits: 1, unit: " hedges per 100 words" },
+  directness:          { scale: 1,   digits: 1, unit: " direct phrases per 100 words" },
+  question_impact:     { scale: 100, digits: 0, unit: "% of your questions picked up" },
+  drive_vs_follow:     { scale: 100, digits: 0, unit: "% drive score" },
+  building_on_others:  { scale: 100, digits: 0, unit: "% of turns build on others" },
+}
+
+function formatMean(signalKey, mean) {
+  const f = SIGNAL_FORMAT[signalKey]
+  if (!f || mean == null) return ""
+  return `${(mean * f.scale).toFixed(f.digits)}${f.unit}`
+}
+
+// Practical chart-scaling ranges only — NOT a comparative score. Each signal's
+// natural range is mapped to 0-100 purely so the spectrum chart has something
+// sensible to plot; nothing here is shown to the user as a number.
+const SPECTRUM_RANGES = {
+  talk_ratio:          [0, 1],
+  questions:           [0, 10],
+  speech_rate:         [80, 220],
+  response_latency:    [0, 5],
+  hedging:             [0, 10],
+  directness:          [0, 10],
+  question_impact:     [0, 1],
+  drive_vs_follow:     [0, 1],
+  building_on_others:  [0, 1],
+}
+
+function spectrumPosition(signalKey, mean) {
+  const [lo, hi] = SPECTRUM_RANGES[signalKey] || [0, 1]
+  if (mean == null) return 0
+  const pct = ((mean - lo) / (hi - lo)) * 100
+  return Math.max(4, Math.min(100, pct))
+}
+
+// New 9-signal trend chart options (replaces the old dimension/filler-era list).
 const SIGNAL_OPTIONS = [
-  { key: "talk_ratio",          label: "Talk Ratio",       unit: "%" },
-  { key: "wpm",                 label: "Speech Rate",      unit: "wpm" },
-  { key: "filler_rate",         label: "Filler Rate",      unit: "/100w" },
-  { key: "interruptions_given", label: "Interruptions",    unit: "x" },
-  { key: "silence_ratio",       label: "Silence",          unit: "%" },
-  { key: "response_latency",    label: "Response Latency", unit: "s" },
+  { key: "talk_ratio",           label: "Talk-share",             unit: "%" },
+  { key: "hedging_rate",         label: "Hedging",                unit: "/100w" },
+  { key: "directness_rate",      label: "Directness",             unit: "/100w" },
+  { key: "question_pickup_rate", label: "Question follow-through", unit: "%" },
+  { key: "drive_score",          label: "Conversational drive",   unit: "%" },
+  { key: "building_on_rate",     label: "Building on others",     unit: "%" },
+  { key: "wpm",                  label: "Pace",                   unit: "wpm" },
+  { key: "response_latency",     label: "Pauses",                 unit: "s" },
 ]
 
-const TALK_RATIO_NORMS = {
-  evaluative: [55, 80], collaborative: [30, 55], social: [35, 65],
-  influential: [48, 68], negotiation: [35, 55], adversarial: [35, 55],
-  developmental: [25, 45], support: [15, 40], intimate: [35, 60],
+const FRAMING_CONFIG = {
+  strength:    { color: "#34d399", label: "Strength" },
+  growth_area: { color: "#fb923c", label: "Growth area" },
+  observation: { color: "#818cf8", label: "Observation" },
 }
 
-
-function useCountUp(target, duration = 900) {
-  const [value, setValue] = useState(0)
-  useEffect(() => {
-    if (!target) return
-    const start = Date.now()
-    const tick = () => {
-      const elapsed = Date.now() - start
-      const progress = Math.min(elapsed / duration, 1)
-      const eased = 1 - Math.pow(1 - progress, 3)
-      setValue(Math.round(eased * target))
-      if (progress < 1) requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
-  }, [target])
-  return value
-}
 
 // ── Section label ─────────────────────────────────────────────────
 
@@ -69,7 +97,7 @@ function SectionLabel({ children }) {
   )
 }
 
-// ── Mirror Feed ───────────────────────────────────────────────────
+// ── Mirror Feed (unchanged this slice — rebuild is the next slice) ─
 
 const FEED_TYPE_CONFIG = {
   context_contrast: { color: "#818cf8", label: "Context contrast", icon: "↕" },
@@ -129,7 +157,7 @@ function MirrorFeed({ insights }) {
   if (!insights.length) {
     return (
       <p style={{ fontSize: 13, color: "#4a4d6a", margin: 0, lineHeight: 1.7 }}>
-        Upload conversations across different contexts — patterns that span multiple
+        Record conversations across different contexts — patterns that span multiple
         sessions will appear here.
       </p>
     )
@@ -149,7 +177,6 @@ function MirrorFeed({ insights }) {
           ))}
         </div>
 
-        {/* Gradient fade over last item with Show more pill */}
         {hasMore && !expanded && (
           <div
             onClick={() => setExpanded(true)}
@@ -175,7 +202,6 @@ function MirrorFeed({ insights }) {
         )}
       </div>
 
-      {/* Show less — simple link below when expanded */}
       {expanded && hasMore && (
         <button
           onClick={() => setExpanded(false)}
@@ -192,43 +218,18 @@ function MirrorFeed({ insights }) {
   )
 }
 
-// ── Flat dimension bar ────────────────────────────────────────────
+// ── Spectrum chart ─────────────────────────────────────────────────
+// Real measured signals as axes (never invented trait names), self-relative
+// chart-scaling (never a population comparison), no number printed anywhere —
+// CLAUDE.md's "fingerprint spectrums", not a graded score. Only steady signals
+// get a plotted point; not-yet-steady axes are omitted rather than faked.
 
-function FlatBar({ d }) {
-  const score = useCountUp(d.score)
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14,
-      padding: "10px 0", borderBottom: "1px solid #131827" }}>
-      <span style={{ fontSize: 13, fontWeight: 500, color: "#c4c2d8",
-        minWidth: 130, flexShrink: 0 }}>{d.name}</span>
-      <div style={{ flex: 1, height: 4, background: "#1e2438", borderRadius: 2 }}>
-        <div style={{ height: "100%", borderRadius: 2, width: `${score}%`,
-          background: G, transition: "width 0.5s ease",
-          boxShadow: "0 0 8px rgba(59,130,246,0.4)" }} />
-      </div>
-      <span style={{ fontSize: 14, fontWeight: 700, minWidth: 30, textAlign: "right",
-        background: G, WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent", backgroundClip: "text" }}>
-        {score}
-      </span>
-    </div>
-  )
-}
+function SpectrumChart({ steady }) {
+  if (!steady?.length) return null
 
-// ── Pentagon radar chart ──────────────────────────────────────────
-
-function PentagonChart({ dimensions }) {
-  if (!dimensions?.length) return null
-
-  const SHORT = {
-    "Listening Quality": "Listening",
-    "Communication Clarity": "Clarity",
-  }
-
-  const radarData = dimensions.map(d => ({
-    subject: SHORT[d.name] || d.name,
-    score: d.score,
-    fullMark: 100,
+  const radarData = steady.map(s => ({
+    subject: s.label,
+    value: spectrumPosition(s.signal_key, s.mean),
   }))
 
   return (
@@ -237,12 +238,12 @@ function PentagonChart({ dimensions }) {
       borderRadius: 12, padding: "8px 0",
       boxShadow: "0 2px 16px rgba(0,0,0,0.3)"
     }}>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={260}>
         <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="66%">
           <PolarGrid stroke="#1e2438" />
           <PolarAngleAxis dataKey="subject" tick={{ fill: "#8b89aa", fontSize: 11 }} />
           <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-          <Radar dataKey="score"
+          <Radar dataKey="value"
             stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.18} strokeWidth={2.5} />
         </RadarChart>
       </ResponsiveContainer>
@@ -250,124 +251,99 @@ function PentagonChart({ dimensions }) {
   )
 }
 
-// ── You Across Contexts ───────────────────────────────────────────
+// ── Steady signals — established patterns ──────────────────────────
 
-function ContextComparison({ byContext }) {
-  const contexts = Object.keys(byContext || {})
-  const [activeCtx, setActiveCtx] = useState(contexts[0] || null)
-  if (!contexts.length || !activeCtx) return null
-
-  const data = byContext[activeCtx]
-  const norm = TALK_RATIO_NORMS[activeCtx]
-  const withinNorm = norm ? (data.talk_ratio >= norm[0] && data.talk_ratio <= norm[1]) : null
-  const normColor = withinNorm === null ? "#8b89aa" : withinNorm ? "#34d399" : "#f59e0b"
-
+function SteadySignalCard({ item, i }) {
+  const cfg = FRAMING_CONFIG[item.framing] || FRAMING_CONFIG.observation
+  const evidence = formatMean(item.signal_key, item.mean)
   return (
-    <div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        {contexts.map(ctx => (
-          <button key={ctx} onClick={() => setActiveCtx(ctx)}
-            style={{ padding: "5px 12px", borderRadius: 20, fontSize: 12,
-              cursor: "pointer", border: "1px solid", transition: "all 0.15s",
-              background: activeCtx === ctx ? "rgba(59,130,246,0.12)" : "#151922",
-              color: activeCtx === ctx ? "#60a5fa" : "#8b89aa",
-              borderColor: activeCtx === ctx ? "rgba(59,130,246,0.3)" : "#1e2438" }}>
-            {CONTEXT_LABELS[ctx] || ctx}
-            <span style={{ opacity: 0.5, marginLeft: 5, fontSize: 10 }}>
-              {byContext[ctx].count}×
-            </span>
-          </button>
-        ))}
+    <RevealItem index={i}>
+    <div style={{
+      padding: "14px 16px", borderRadius: 10,
+      background: "#151922", border: "1px solid #1e2438",
+      borderLeft: `3px solid ${cfg.color}`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>
+          {item.label}
+        </span>
+        <span style={{ fontSize: 11, color: cfg.color, fontWeight: 600,
+          background: `${cfg.color}15`, border: `1px solid ${cfg.color}30`,
+          borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap", marginLeft: 12 }}>
+          {cfg.label}
+        </span>
       </div>
-
-      <div style={{ background: "#151922", border: "1px solid #1e2438",
-        borderRadius: 10, padding: "16px 18px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-          <div>
-            <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 5 }}>Talk ratio</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#f0eeff", lineHeight: 1 }}>
-              {data.talk_ratio}<span style={{ fontSize: 13, color: "#8b89aa" }}>%</span>
-            </div>
-            {norm && (
-              <div style={{ fontSize: 11, color: normColor, marginTop: 4 }}>
-                {withinNorm ? "✓" : "↑"} norm {norm[0]}–{norm[1]}%
-              </div>
-            )}
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 5 }}>Speech rate</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#f0eeff", lineHeight: 1 }}>
-              {data.wpm}<span style={{ fontSize: 13, color: "#8b89aa" }}> wpm</span>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 5 }}>Filler rate</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#f0eeff", lineHeight: 1 }}>
-              {data.filler_rate}<span style={{ fontSize: 13, color: "#8b89aa" }}>/100w</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── What's Changed ────────────────────────────────────────────────
-
-function WhatsChanged({ trendLines, lastDelta }) {
-  const dimChanges = lastDelta?.changes || []
-  const signalTrends = trendLines || []
-  if (!dimChanges.length && !signalTrends.length) return null
-
-  return (
-    <div>
-      <div style={{ marginBottom: 12 }}>
-        <SectionLabel>Trends</SectionLabel>
-        <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-          What's Changed
-        </h2>
-        <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
-          Movement detected across your sessions
+      {item.note && (
+        <p style={{ margin: "0 0 8px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
+          {item.note}
         </p>
+      )}
+      {evidence && (
+        <p style={{ margin: 0, fontSize: 11, color: "#4a4865" }}>
+          Evidence: {evidence} · based on {item.sample_count} sessions
+        </p>
+      )}
+    </div>
+    </RevealItem>
+  )
+}
+
+// ── Still forming — not enough evidence yet ────────────────────────
+
+function StillFormingRow({ item }) {
+  const pct = Math.round((item.sample_count / item.min_needed) * 100)
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12,
+      padding: "9px 0", borderBottom: "1px solid #131827" }}>
+      <span style={{ fontSize: 13, color: "#8b89aa", minWidth: 150, flexShrink: 0 }}>
+        {item.label}
+      </span>
+      <div style={{ flex: 1, height: 3, background: "#1e2438", borderRadius: 2 }}>
+        <div style={{ height: "100%", borderRadius: 2, width: `${pct}%`,
+          background: "#3a3a52" }} />
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {dimChanges.map((c, i) => (
-          <div key={i} style={{
-            display: "flex", alignItems: "center", gap: 5,
-            padding: "7px 13px", borderRadius: 20, fontSize: 12, fontWeight: 600,
-            background: c.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-            border: `1px solid ${c.direction === "up" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-            color: c.direction === "up" ? "#34d399" : "#f87171",
-          }}>
-            {c.direction === "up" ? "↑" : "↓"} {c.dimension}
-            <span style={{ opacity: 0.7 }}>
-              {" "}{c.direction === "up" ? "+" : ""}{c.diff}pts
-            </span>
-          </div>
-        ))}
-        {signalTrends.map((t, i) => (
-          <div key={`t${i}`} style={{
-            display: "flex", alignItems: "center", gap: 5,
-            padding: "7px 13px", borderRadius: 20, fontSize: 12, fontWeight: 600,
-            background: t.direction === "improved" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-            border: `1px solid ${t.direction === "improved" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-            color: t.direction === "improved" ? "#34d399" : "#f87171",
-          }}>
-            {t.direction === "improved" ? "↗" : "↘"}
-            {" "}{t.signal.replace(/_/g, " ")}
-            <span style={{ opacity: 0.7 }}>
-              {" "}{t.old}{t.unit} → {t.new}{t.unit}
-            </span>
-          </div>
-        ))}
-      </div>
+      <span style={{ fontSize: 11, color: "#4a4865", whiteSpace: "nowrap" }}>
+        {item.sample_count} of {item.min_needed} sessions
+      </span>
     </div>
   )
 }
 
-// ── Signal Trends (collapsible) ───────────────────────────────────
+// ── How you shift by context ───────────────────────────────────────
 
-function SignalTrends({ chartData, trendLines }) {
+function ContextShiftCard({ item, i }) {
+  return (
+    <RevealItem index={i}>
+    <div style={{
+      padding: "14px 16px", borderRadius: 10,
+      background: "#151922", border: "1px solid #1e2438",
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff", marginBottom: 8 }}>
+        {item.label}
+      </div>
+      {item.note && (
+        <p style={{ margin: "0 0 10px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
+          {item.note}
+        </p>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {Object.entries(item.by_context).map(([ctx, mean]) => (
+          <span key={ctx} style={{
+            fontSize: 11, color: "#8b89aa", background: "#0e1320",
+            border: "1px solid #1e2438", borderRadius: 20, padding: "4px 12px",
+          }}>
+            {CONTEXT_LABELS[ctx] || ctx}: {formatMean(item.signal_key, mean)}
+          </span>
+        ))}
+      </div>
+    </div>
+    </RevealItem>
+  )
+}
+
+// ── Signal Trends (collapsible, raw history — not a pattern claim) ─
+
+function SignalTrends({ chartData }) {
   const [open, setOpen] = useState(false)
   const [activeSignal, setActiveSignal] = useState("talk_ratio")
   if (chartData.length < 2) return null
@@ -381,7 +357,7 @@ function SignalTrends({ chartData, trendLines }) {
         style={{ padding: "14px 18px", display: "flex", justifyContent: "space-between",
           alignItems: "center", cursor: "pointer",
           borderBottom: open ? "1px solid #1e2438" : "none" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>Signal Trends</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>Signal History</span>
         <span style={{ fontSize: 11, color: "#4a4865" }}>{open ? "▲ close" : "▼ expand"}</span>
       </div>
 
@@ -404,19 +380,6 @@ function SignalTrends({ chartData, trendLines }) {
             })}
           </div>
 
-          {trendLines?.filter(t => t.signal === activeSignal).map((t, i) => (
-            <div key={i} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              padding: "4px 12px", borderRadius: 20, fontSize: 12, marginBottom: 10,
-              background: t.direction === "improved" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-              border: `1px solid ${t.direction === "improved" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-              color: t.direction === "improved" ? "#34d399" : "#f87171",
-            }}>
-              {t.direction === "improved" ? "↗" : "↘"}
-              {" "}{signalConfig?.label} {t.direction}: {t.old}{signalConfig?.unit} → {t.new}{signalConfig?.unit}
-            </div>
-          ))}
-
           <div style={{ borderRadius: 8, padding: "12px 0" }}>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={chartData}>
@@ -435,7 +398,8 @@ function SignalTrends({ chartData, trendLines }) {
                 <Line type="monotone" dataKey={activeSignal}
                   stroke="#3b82f6" strokeWidth={2.5}
                   dot={{ r: 4, fill: "#3b82f6", strokeWidth: 0 }}
-                  activeDot={{ r: 6, fill: "#22d3ee" }} />
+                  activeDot={{ r: 6, fill: "#22d3ee" }}
+                  connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -445,7 +409,7 @@ function SignalTrends({ chartData, trendLines }) {
   )
 }
 
-// ── Main ProfileView ──────────────────────────────────────────────
+// ── Main ProfileView ("You" page) ──────────────────────────────────
 
 export default function ProfileView({ active }) {
   const [profile, setProfile] = useState(null)
@@ -504,19 +468,17 @@ export default function ProfileView({ active }) {
     )
   }
 
-  const { by_context, trends: trendLines, session_count, personality,
-          blind_spots, completeness, completeness_label, mirror_feed,
-          recurring_coaching } = profile
+  const { session_count, profile_strength, portrait, how_you_shift_by_context,
+          blind_spots, mirror_feed, recurring_coaching } = profile
 
-  const keywords = (personality?.tags || []).slice(0, 4)
+  const steady = portrait?.steady || []
+  const stillForming = portrait?.still_forming || []
 
   const chartData = trends.map((point, i) => ({
     ...point,
     label: `S${i + 1}`,
     date: new Date(point.date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
   }))
-
-  const hasContextData = by_context && Object.keys(by_context).length > 0
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
@@ -526,21 +488,21 @@ export default function ProfileView({ active }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-            Your Behavioral Profile
+            You
           </h2>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
             <span style={{ fontSize: 12, color: "#4a4865" }}>
               {session_count} session{session_count > 1 ? "s" : ""}
             </span>
-            {completeness_label && (
+            {profile_strength?.label && (
               <>
                 <span style={{ color: "#1e2438", fontSize: 12 }}>·</span>
-                <span style={{ fontSize: 12, color: "#4a4865" }}>{completeness_label}</span>
+                <span style={{ fontSize: 12, color: "#4a4865" }}>{profile_strength.label}</span>
                 <div style={{ width: 60, height: 3, background: "#1e2438",
                   borderRadius: 2, overflow: "hidden" }}>
                   <div style={{ height: "100%", borderRadius: 2,
-                    width: `${completeness}%`, background: G,
+                    width: `${profile_strength.pct}%`, background: G,
                     transition: "width 0.6s ease" }} />
                 </div>
               </>
@@ -579,34 +541,77 @@ export default function ProfileView({ active }) {
       </div>
       </Reveal>
 
-      {/* Your Portrait — comes first, it's the centrepiece */}
-      {personality && (
+      {/* Spectrum — fingerprint shape across your established signals */}
+      {steady.length > 0 && (
         <Reveal delay={80}>
         <div>
-          <SectionLabel>Your Portrait</SectionLabel>
-          <div style={{
-            borderLeft: "3px solid rgba(59,130,246,0.65)",
-            paddingLeft: 16, marginTop: 10,
-          }}>
-            <p style={{ fontSize: 14, color: "#c4c2d8",
-              lineHeight: 1.9, margin: 0, textAlign: "justify" }}>
-              {personality.paragraph}
+          <SectionLabel>Your Spectrum</SectionLabel>
+          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+            Your Shape
+          </h2>
+          <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 14px" }}>
+            Each axis is a real, measured signal — positioned relative to your own history, never compared to anyone else
+          </p>
+          <SpectrumChart steady={steady} />
+        </div>
+        </Reveal>
+      )}
+
+      {/* Established patterns */}
+      {steady.length > 0 && (
+        <Reveal delay={100}>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <SectionLabel>Established</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+              What We've Noticed
+            </h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {steady.map((item, i) => (
+              <SteadySignalCard key={item.signal_key} item={item} i={i} />
+            ))}
+          </div>
+        </div>
+        </Reveal>
+      )}
+
+      {/* How you shift by context */}
+      {how_you_shift_by_context?.length > 0 && (
+        <Reveal delay={100}>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <SectionLabel>Context Breakdown</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+              How You Shift By Context
+            </h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {how_you_shift_by_context.map((item, i) => (
+              <ContextShiftCard key={item.signal_key} item={item} i={i} />
+            ))}
+          </div>
+        </div>
+        </Reveal>
+      )}
+
+      {/* Still forming */}
+      {stillForming.length > 0 && (
+        <Reveal delay={100}>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <SectionLabel>Building Evidence</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+              Still Forming
+            </h2>
+            <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
+              Not enough evidence yet to describe these as established — that's expected early on
             </p>
-            {keywords.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
-                {keywords.map((kw, i) => (
-                  <span key={i} style={{
-                    fontSize: 12, fontWeight: 600, padding: "5px 14px",
-                    borderRadius: 6, letterSpacing: 0.2,
-                    background: "linear-gradient(#151922, #151922) padding-box, linear-gradient(135deg, rgba(59,130,246,0.5), rgba(34,211,238,0.5)) border-box",
-                    border: "1px solid transparent",
-                    color: "#60a5fa", whiteSpace: "nowrap",
-                  }}>
-                    {kw}
-                  </span>
-                ))}
-              </div>
-            )}
+          </div>
+          <div>
+            {stillForming.map(item => (
+              <StillFormingRow key={item.signal_key} item={item} />
+            ))}
           </div>
         </div>
         </Reveal>
@@ -671,80 +676,10 @@ export default function ProfileView({ active }) {
         </Reveal>
       )}
 
-      {/* You Across Contexts */}
-      {hasContextData && (
-        <Reveal>
-        <div>
-          <div style={{ marginBottom: 16 }}>
-            <SectionLabel>Context Breakdown</SectionLabel>
-            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-              You Across Contexts
-            </h2>
-            <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
-              How your patterns shift depending on the room
-            </p>
-          </div>
-          <ContextComparison byContext={by_context} />
-        </div>
-        </Reveal>
-      )}
-
-      {/* Your Shape — pentagon + bars */}
-      {personality?.dimensions?.length > 0 && (
-        <Reveal>
-        <div>
-          <div style={{ marginBottom: 16 }}>
-            <SectionLabel>5 Dimensions</SectionLabel>
-            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-              Your Shape
-            </h2>
-            <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
-              How you show up across five behavioral axes
-            </p>
-          </div>
-
-          {/* Pentagon chart */}
-          <PentagonChart dimensions={personality.dimensions} />
-
-          {/* All 5 flat bars */}
-          <div style={{ marginTop: 20 }}>
-            {personality.dimensions.map((d, i) => (
-              <RevealItem key={d.key} index={i}>
-                <FlatBar d={d} />
-              </RevealItem>
-            ))}
-          </div>
-
-          {/* Shape narrative */}
-          {personality.shape_narrative && (
-            <div style={{ marginTop: 14, padding: "14px 16px",
-              background: "#0e1320", border: "1px solid #1e2438",
-              borderLeft: "3px solid rgba(29,78,216,0.4)",
-              borderRadius: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#4a4865",
-                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-                What this shape means
-              </div>
-              <p style={{ margin: 0, fontSize: 13, color: "#8b89aa", lineHeight: 1.75 }}>
-                {personality.shape_narrative}
-              </p>
-            </div>
-          )}
-        </div>
-        </Reveal>
-      )}
-
-      {/* What's Changed */}
-      {((personality?.last_delta?.changes?.length ?? 0) > 0 || (trendLines?.length ?? 0) > 0) && (
-        <Reveal>
-          <WhatsChanged trendLines={trendLines} lastDelta={personality?.last_delta} />
-        </Reveal>
-      )}
-
-      {/* Signal Trends — collapsible */}
+      {/* Signal History — collapsible, raw data */}
       {chartData.length >= 2 && (
         <Reveal>
-          <SignalTrends chartData={chartData} trendLines={trendLines} />
+          <SignalTrends chartData={chartData} />
         </Reveal>
       )}
 
