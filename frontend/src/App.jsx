@@ -6,6 +6,7 @@ import OnboardingView from "./components/OnboardingView"
 import ResultsView from "./components/ResultsView"
 import HistoryView from "./components/HistoryView"
 import ProfileView from "./components/ProfileView"
+import HomeView from "./components/HomeView"
 import HowItWorksView from "./components/HowItWorksView"
 import MeetStatusBanner from "./components/MeetStatusBanner"
 import FeedbackModal from "./components/FeedbackModal"
@@ -23,7 +24,7 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(
     () => !!localStorage.getItem("bm_onboarding_v1")
   )
-  const [view, setView] = useState("profile")
+  const [view, setView] = useState("home")
   const [results, setResults] = useState(null)
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -32,10 +33,10 @@ export default function App() {
 
   // Each key tracks how many times we've navigated TO that view — re-mounting
   // the wrapper div causes the .view-enter animation to fire every tab switch.
-  const [viewKeys, setViewKeys] = useState({ profile: 0, history: 0 })
+  const [viewKeys, setViewKeys] = useState({ home: 0, profile: 0, history: 0 })
 
   useEffect(() => {
-    if (view === "profile" || view === "history") {
+    if (view === "home" || view === "profile" || view === "history") {
       setViewKeys(k => ({ ...k, [view]: k[view] + 1 }))
     }
   }, [view])
@@ -272,7 +273,8 @@ export default function App() {
       <nav style={{ display: "flex", gap: 0, marginBottom: 32,
         borderBottom: "1px solid #1e2438" }}>
         {[
-          { key: "profile", label: "Profile" },
+          { key: "home", label: "Home" },
+          { key: "profile", label: "You" },
           { key: "history", label: "History" },
         ].map(({ key, label }) => (
           <button key={key} onClick={() => setView(key)}
@@ -291,11 +293,16 @@ export default function App() {
       )}
 
       {view === "howItWorks" && (
-        <HowItWorksView onBack={() => setView("profile")} />
+        <HowItWorksView onBack={() => setView("home")} />
       )}
 
       {/* Persistent views — kept mounted, but wrapper remounts each tab visit
           so .view-enter animation fires every time you switch to that tab */}
+      <div style={{ display: view === "home" ? "block" : "none" }}>
+        <div key={`home-${viewKeys.home}`} className="view-enter">
+          <HomeView active={view === "home"} />
+        </div>
+      </div>
       <div style={{ display: view === "profile" ? "block" : "none" }}>
         <div key={`profile-${viewKeys.profile}`} className="view-enter">
           <ProfileView active={view === "profile"} />

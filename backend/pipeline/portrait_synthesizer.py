@@ -56,7 +56,7 @@ class PortraitSynthesizer:
                 context_shift_candidates[signal_key] = steady_contexts
 
         if not steady_overall and not context_shift_candidates:
-            return {"signals": [], "context_shifts": []}
+            return {"signals": [], "context_shifts": [], "how_it_may_land": []}
 
         prompt = self._build_prompt(steady_overall, context_shift_candidates, session_count)
         response = self.client.chat.completions.create(
@@ -76,6 +76,8 @@ class PortraitSynthesizer:
                    f"based on {ev['sample_count']} sessions"
             signal_lines.append(desc)
 
+        wants_how_it_may_land = "question_impact" in steady_overall
+
         context_lines = []
         for signal_key, by_ctx in context_shift_candidates.items():
             label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
@@ -84,6 +86,20 @@ class PortraitSynthesizer:
                 for ctx, mean in by_ctx.items()
             )
             context_lines.append(f"  {label} ({signal_key}) — {parts}")
+
+        how_it_may_land_task = (
+            "\nALSO: \"question follow-through\" (question_impact) is established. Write ONE "
+            "additional sentence describing how this person's questions tend to LAND in the room — "
+            "effect-on-others phrasing, e.g. \"your questions tend to get picked up and built on by "
+            "the room\" — still self-relative (this person's own tendency), never a claim about what "
+            "any specific other person did.\n"
+            if wants_how_it_may_land else ""
+        )
+        how_it_may_land_schema = (
+            ',\n  "how_it_may_land": [\n'
+            '    {"signal_key": "question_impact", "note": "one sentence"}\n  ]'
+            if wants_how_it_may_land else ""
+        )
 
         return f"""You are writing the "You" standing portrait for a communication-coaching app. This
 person has recorded {session_count} conversations. Below are ONLY the signals with enough
@@ -114,7 +130,7 @@ Rules:
 For each context-shift signal, write ONE sentence comparing how it shows up differently across this
 person's own contexts (e.g. "You tend to ask more questions in collaborative settings than in
 evaluative ones") — self-relative only, never implying one context's version is objectively better.
-
+{how_it_may_land_task}
 Output valid JSON only — no markdown, no code fences, no extra text:
 {{
   "signals": [
@@ -122,7 +138,7 @@ Output valid JSON only — no markdown, no code fences, no extra text:
   ],
   "context_shifts": [
     {{"signal_key": "<one of the signal_key values above>", "note": "one sentence"}}
-  ]
+  ]{how_it_may_land_schema}
 }}"""
 
     def _parse(self, raw: str) -> dict:
@@ -136,6 +152,7 @@ Output valid JSON only — no markdown, no code fences, no extra text:
             return {
                 "signals": parsed.get("signals", []),
                 "context_shifts": parsed.get("context_shifts", []),
+                "how_it_may_land": parsed.get("how_it_may_land", []),
             }
         except Exception:
-            return {"signals": [], "context_shifts": []}
+            return {"signals": [], "context_shifts": [], "how_it_may_land": []}

@@ -37,9 +37,9 @@ from pipeline.dimension_scorer import DimensionScorer
 from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.personality_synthesizer import PersonalitySynthesizer
-from pipeline.mirror_feed_synthesizer import MirrorFeedSynthesizer
 from pipeline.portrait_synthesizer import PortraitSynthesizer
 from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, compute_signal_evidence, extract_value
+from pipeline import home_feed
 from db.database import supabase_admin
 
 app = FastAPI()
@@ -123,13 +123,11 @@ context_detector = ContextDetector(api_key=os.getenv("GROQ_API_KEY"))
 dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
 personality_synth = PersonalitySynthesizer(api_key=os.getenv("GROQ_API_KEY"))
-mirror_feed_synth = MirrorFeedSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 portrait_synth = PortraitSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
 print("[startup] All models loaded. Server ready.")
 
 # In-memory caches — cleared on server restart, Supabase is the durable layer
 _portrait_cache: dict = {}      # key = "{user_id}:{session_count}:v{version}"
-_mirror_feed_cache: dict = {}   # key = "{user_id}:{session_count}"
 
 
 _CONTEXT_BLIND_SPOTS: dict = {
@@ -1067,9 +1065,6 @@ def _run_finalize_job(session_id, confirmed_speaker):
         for key in list(_portrait_cache.keys()):
             if key.startswith(f"{user_id}:"):
                 del _portrait_cache[key]
-        for key in list(_mirror_feed_cache.keys()):
-            if key.startswith(f"{user_id}:"):
-                del _mirror_feed_cache[key]
 
         logger.info("[%s] ✓ Finalize complete — confirmed_speaker: %s", _sid(session_id), confirmed_speaker)
         result_data = {
@@ -1306,17 +1301,12 @@ def get_trends(user_id: str = Depends(get_current_user)):
     return {"data": points, "count": len(points)}
 
 
-@app.get("/api/profile")
-def get_profile(user_id: str = Depends(get_current_user)):
+def _fetch_and_parse_sessions(user_id: str) -> list:
+    """Shared session fetch-and-parse used by both /api/profile and /api/home —
+    same query, same shape, so the two surfaces never drift out of sync."""
     res = supabase_admin.table("sessions").select(
         "id, context, created_at, signals_json, dimensions_json, insights_json, fingerprint_json, detected_speaker"
     ).eq("user_id", user_id).order("created_at", desc=False).execute()
-
-    if len(res.data) < 1:
-        return {
-            "insufficient_data": True,
-            "session_count": 0,
-        }
 
     parsed = []
     for s in res.data:
@@ -1326,6 +1316,7 @@ def get_profile(user_id: str = Depends(get_current_user)):
             ins = json.loads(s["insights_json"])
             fingerprint = json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None
             parsed.append({
+                "id": s["id"],
                 "context": s["context"], "date": s["created_at"],
                 "sig": sig, "dims": dims, "ins": ins,
                 "fingerprint": fingerprint,
@@ -1333,109 +1324,20 @@ def get_profile(user_id: str = Depends(get_current_user)):
             })
         except Exception:
             continue
+    return parsed
+
+
+@app.get("/api/profile")
+def get_profile(user_id: str = Depends(get_current_user)):
+    parsed = _fetch_and_parse_sessions(user_id)
+
+    if len(parsed) < 1:
+        return {
+            "insufficient_data": True,
+            "session_count": 0,
+        }
 
     n = len(parsed)
-
-    # Pattern detection (needs 2+ sessions to establish consistency) — kept only
-    # as an internal input to mirror_feed_synth below (NOT returned to the
-    # frontend; it's session-count-gated, not evidence-gated, so it stays out of
-    # the You page per CLAUDE.md rule #3. The Home feed rebuild will replace this
-    # mechanism with evidence-gated equivalents).
-    patterns = []
-    if n >= 2:
-        talk_ratios = [p["sig"]["talk_ratio"]["user_ratio"] * 100 for p in parsed]
-        high_talk = sum(1 for r in talk_ratios if r > 60)
-        low_talk  = sum(1 for r in talk_ratios if r < 40)
-        if high_talk >= n * 0.7:
-            patterns.append({"signal": "talk_ratio", "type": "consistently_high",
-                              "detail": f"You speak over 60% of the time in {high_talk}/{n} sessions."})
-        elif low_talk >= n * 0.7:
-            patterns.append({"signal": "talk_ratio", "type": "consistently_low",
-                              "detail": f"You speak under 40% of the time in {low_talk}/{n} sessions."})
-
-        filler_rates = [p["sig"]["filler_words"]["rate_per_100_words"] for p in parsed]
-        avg_filler = sum(filler_rates) / len(filler_rates)
-        if avg_filler > 5:
-            patterns.append({"signal": "filler_words", "type": "consistently_high",
-                              "detail": f"Average filler rate {round(avg_filler, 1)}/100 words across all sessions."})
-
-        interruption_counts = [p["sig"]["interruptions"]["user_interrupted_other"] for p in parsed]
-        avg_interrupts = sum(interruption_counts) / len(interruption_counts)
-        if avg_interrupts >= 3:
-            patterns.append({"signal": "interruptions", "type": "consistently_high",
-                              "detail": f"You average {round(avg_interrupts, 1)} interruptions per session."})
-
-    # Trend detection across first vs last third (needs 6+ sessions)
-    trends = []
-    if n >= 6:
-        third = n // 3
-        oldest = parsed[:third]
-        newest = parsed[n - third:]
-
-        def _trend(fn, label, unit="", lower_is_better=False):
-            old_v = sum(fn(p) for p in oldest) / len(oldest)
-            new_v = sum(fn(p) for p in newest) / len(newest)
-            if old_v == 0:
-                return
-            change_pct = (new_v - old_v) / old_v * 100
-            if abs(change_pct) < 15:
-                return
-            improved = (new_v < old_v) if lower_is_better else (new_v > old_v)
-            trends.append({
-                "signal": label,
-                "direction": "improved" if improved else "declined",
-                "old": round(old_v, 2),
-                "new": round(new_v, 2),
-                "change_pct": round(change_pct, 1),
-                "unit": unit,
-            })
-
-        _trend(lambda p: p["sig"]["filler_words"]["rate_per_100_words"], "filler_rate", "/100w", lower_is_better=True)
-        _trend(lambda p: p["sig"]["speech_rate"]["overall_wpm"], "wpm", "wpm")
-        _trend(lambda p: p["sig"]["talk_ratio"]["user_ratio"] * 100, "talk_ratio", "%")
-
-    # Recurring coaching areas
-    from collections import Counter as _Counter
-
-    def _normalize_area(area: str) -> str:
-        a = area.lower().strip()
-        _SYNONYMS = {
-            "active listening": "listening",
-            "deep listening": "listening",
-            "listen more": "listening",
-            "talk ratio": "talk balance",
-            "talk ratio balance": "talk balance",
-            "giving space": "talk balance",
-            "space for others": "talk balance",
-            "question quality": "asking questions",
-            "question asking": "asking questions",
-            "probing questions": "asking questions",
-            "follow-up questions": "asking questions",
-            "self awareness": "self-awareness",
-            "self-reflection": "self-awareness",
-            "self reflection": "self-awareness",
-        }
-        return _SYNONYMS.get(a, a)
-
-    coaching_map: dict = {}
-    for p in parsed:
-        for c in p["ins"].get("coaching_suggestions", [])[:2]:
-            area = c.get("area", "")
-            if not area:
-                continue
-            key = _normalize_area(area)
-            coaching_map.setdefault(key, []).append(c.get("suggestion", ""))
-
-    coaching_counter = _Counter({k: len(v) for k, v in coaching_map.items()})
-    recurring_coaching = [
-        {
-            "area": a.title(),
-            "count": c,
-            "tip": coaching_map[a][-1] if coaching_map.get(a) else "",
-        }
-        for a, c in coaching_counter.most_common(3)
-        if c >= 2
-    ]
 
     # Blind spots — contexts the mirror hasn't seen yet
     recorded_contexts = set(p["context"] for p in parsed)
@@ -1499,101 +1401,65 @@ def get_profile(user_id: str = Depends(get_current_user)):
     elif strength_pct < 90: strength_label = "Established"
     else:                   strength_label = "Deep mirror"
 
-    _MF_VERSION = 6  # bump when tip field or prompt changes to invalidate old cache
-    mf_cache_key = f"{user_id}:{n}:v{_MF_VERSION}"
-    mirror_feed = _mirror_feed_cache.get(mf_cache_key)
-
-    previous_feed: list = []  # existing feed passed as context when regenerating
-
-    if mirror_feed is None:
-        # Try Supabase cache
-        try:
-            mf_res = supabase_admin.table("user_profiles").select(
-                "mirror_feed_json, mirror_feed_session_count"
-            ).eq("user_id", user_id).execute()
-            if mf_res.data:
-                row = mf_res.data[0]
-                if row.get("mirror_feed_session_count") == n * _MF_VERSION and row.get("mirror_feed_json"):
-                    parsed_feed = json.loads(row["mirror_feed_json"])
-                    if parsed_feed:  # discard any previously-cached empty lists
-                        mirror_feed = parsed_feed
-                # Always load previous feed (even if stale) so synthesizer can evolve it
-                elif row.get("mirror_feed_json"):
-                    try:
-                        previous_feed = json.loads(row["mirror_feed_json"]) or []
-                    except Exception:
-                        previous_feed = []
-        except Exception:
-            pass
-
-    if mirror_feed is None:
-        def _session_text(p: dict) -> str:
-            """Best available behavioral text for this session, richest first."""
-            ins = p.get("ins", {})
-            for val in [
-                p.get("fingerprint"),
-                ins.get("summary_sentence"),
-                ins.get("conversation_summary"),
-            ]:
-                if val and isinstance(val, str) and val.strip() not in ("", "Session analyzed."):
-                    return val.strip()
-            # Last resort: compact signal summary so the session still contributes data
-            try:
-                sig = p["sig"]
-                talk = round(sig["talk_ratio"]["user_ratio"] * 100)
-                wpm = round(sig["speech_rate"]["overall_wpm"])
-                filler = round(sig["filler_words"]["rate_per_100_words"], 1)
-                return f"Talk ratio {talk}%, speech rate {wpm} wpm, filler rate {filler}/100 words."
-            except Exception:
-                return ""
-
-        feed_sessions = [
-            {
-                "context": p["context"],
-                "date": p["date"][:10],
-                "fingerprint": _session_text(p),
-                "notable_pattern": p["ins"].get("notable_pattern") or "",
-            }
-            for p in parsed
-        ]
-        user_summary = _get_user_summary(user_id)
-        mirror_feed = mirror_feed_synth.synthesize(
-            feed_sessions,
-            user_summary=user_summary,
-            existing_feed=previous_feed,
-            signal_trends=trends,
-            signal_patterns=patterns,
-        )
-
-        # Only cache a successful result — never persist an empty feed,
-        # so a Groq failure or sparse-data session doesn't suppress the feed permanently.
-        if mirror_feed:
-            try:
-                supabase_admin.table("user_profiles").upsert({
-                    "user_id": user_id,
-                    "mirror_feed_json": json.dumps(mirror_feed),
-                    "mirror_feed_session_count": n * _MF_VERSION,
-                    "updated_at": _utcnow(),
-                }).execute()
-            except Exception:
-                pass
-            _mirror_feed_cache[mf_cache_key] = mirror_feed
-        else:
-            mirror_feed = []  # return empty to caller but don't cache it
-
-    if mirror_feed and mf_cache_key not in _mirror_feed_cache:
-        _mirror_feed_cache[mf_cache_key] = mirror_feed
-
     return {
         "insufficient_data": False,
         "session_count": n,
         "profile_strength": {"pct": strength_pct, "label": strength_label},
         "portrait": {"steady": steady_signals, "still_forming": still_forming},
         "how_you_shift_by_context": how_you_shift_by_context,
-        "recurring_coaching": recurring_coaching,
         "blind_spots": blind_spots,
-        "mirror_feed": mirror_feed,
     }
+
+
+def _get_dismissed_card_keys(user_id: str) -> set:
+    try:
+        res = supabase_admin.table("dismissed_cards").select("card_key").eq(
+            "user_id", user_id
+        ).execute()
+        return {row["card_key"] for row in res.data}
+    except Exception:
+        return set()
+
+
+@app.get("/api/home")
+def get_home(user_id: str = Depends(get_current_user)):
+    parsed = _fetch_and_parse_sessions(user_id)
+    if len(parsed) < 1:
+        return {"insufficient_data": True, "session_count": 0, "cards": []}
+
+    n = len(parsed)
+    recorded_contexts = set(p["context"] for p in parsed)
+    blind_spots = _compute_blind_spots(recorded_contexts)
+
+    # Same evidence + portrait computation /api/profile uses — same cache key,
+    # so viewing Home and You back-to-back costs zero extra LLM calls either way.
+    evidence = _compute_profile_evidence(parsed)
+    portrait_llm = _get_or_synthesize_portrait(user_id, n, evidence, blind_spots)
+    llm_notes_by_signal = {s["signal_key"]: s for s in portrait_llm.get("signals", [])}
+
+    dismissed = _get_dismissed_card_keys(user_id)
+
+    cards = []
+    cards += home_feed.build_strength_cards(evidence, llm_notes_by_signal, dismissed)
+    cards += home_feed.build_observation_cards(evidence, llm_notes_by_signal, dismissed)
+    cards += home_feed.build_how_it_may_land_cards(portrait_llm, dismissed)
+    cards += home_feed.build_progress_cards(evidence, dismissed)
+    cards += home_feed.build_still_forming_cards(evidence, dismissed)
+    cards += home_feed.build_session_observation_card(parsed, dismissed)
+
+    return {"insufficient_data": False, "session_count": n, "cards": cards}
+
+
+@app.post("/api/home/dismiss")
+async def dismiss_home_card(
+    card_key: str = Form(...),
+    user_id: str = Depends(get_current_user)
+):
+    supabase_admin.table("dismissed_cards").upsert({
+        "user_id": user_id,
+        "card_key": card_key,
+    }, on_conflict="user_id,card_key").execute()
+    return {"status": "dismissed"}
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -1611,9 +1477,6 @@ async def delete_session(
     for key in list(_portrait_cache.keys()):
         if key.startswith(f"{user_id}:"):
             del _portrait_cache[key]
-    for key in list(_mirror_feed_cache.keys()):
-        if key.startswith(f"{user_id}:"):
-            del _mirror_feed_cache[key]
 
     return {"status": "deleted"}
 

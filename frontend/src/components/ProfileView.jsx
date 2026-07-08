@@ -97,127 +97,6 @@ function SectionLabel({ children }) {
   )
 }
 
-// ── Mirror Feed (unchanged this slice — rebuild is the next slice) ─
-
-const FEED_TYPE_CONFIG = {
-  context_contrast: { color: "#818cf8", label: "Context contrast", icon: "↕" },
-  trend_up:         { color: "#34d399", label: "Improving",         icon: "↑" },
-  trend_down:       { color: "#fb923c", label: "Declining",         icon: "↓" },
-  pattern:          { color: "#f59e0b", label: "Consistent pattern", icon: "●" },
-}
-
-const FEED_MIN_VISIBLE = 3
-
-function MirrorFeedItem({ insight, i, total }) {
-  const cfg = FEED_TYPE_CONFIG[insight.type] || FEED_TYPE_CONFIG.pattern
-  return (
-    <RevealItem index={i}>
-    <div style={{
-      display: "flex", gap: 14, padding: "14px 18px",
-      borderBottom: i < total - 1 ? "1px solid #131827" : "none",
-      alignItems: "flex-start",
-    }}>
-      <div style={{
-        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-        background: `${cfg.color}18`,
-        border: `1px solid ${cfg.color}30`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 14, color: cfg.color, fontWeight: 700, marginTop: 1,
-      }}>
-        {cfg.icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: cfg.color,
-          textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 5 }}>
-          {cfg.label}
-        </div>
-        <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.75 }}>
-          {insight.text}
-        </p>
-        {insight.tip && (
-          <p style={{
-            margin: "10px 0 0", fontSize: 12, color: "#6b6888", lineHeight: 1.65,
-            paddingTop: 10, borderTop: "1px solid #131827",
-          }}>
-            <span style={{ color: "#4a4865", fontWeight: 600 }}>— </span>
-            {insight.tip}
-          </p>
-        )}
-      </div>
-    </div>
-    </RevealItem>
-  )
-}
-
-function MirrorFeed({ insights }) {
-  const [expanded, setExpanded] = useState(false)
-
-  if (!insights) return null
-
-  if (!insights.length) {
-    return (
-      <p style={{ fontSize: 13, color: "#4a4d6a", margin: 0, lineHeight: 1.7 }}>
-        Record conversations across different contexts — patterns that span multiple
-        sessions will appear here.
-      </p>
-    )
-  }
-
-  const hasMore = insights.length > FEED_MIN_VISIBLE
-  const visible = expanded ? insights : insights.slice(0, FEED_MIN_VISIBLE)
-
-  return (
-    <div>
-      <div style={{ position: "relative" }}>
-        <div style={{ background: "#151922", border: "1px solid #1e2438",
-          borderRadius: 12, overflow: "hidden",
-          boxShadow: "0 2px 16px rgba(0,0,0,0.3)" }}>
-          {visible.map((insight, i) => (
-            <MirrorFeedItem key={insight.signal || i} insight={insight} i={i} total={visible.length} />
-          ))}
-        </div>
-
-        {hasMore && !expanded && (
-          <div
-            onClick={() => setExpanded(true)}
-            style={{
-              position: "absolute", bottom: 0, left: 0, right: 0,
-              height: 90,
-              background: "linear-gradient(to bottom, transparent, #0f1117)",
-              borderRadius: "0 0 12px 12px",
-              display: "flex", alignItems: "flex-end",
-              justifyContent: "center", paddingBottom: 14,
-              cursor: "pointer",
-            }}
-          >
-            <span style={{
-              fontSize: 12, fontWeight: 600, color: "#5b9cf6",
-              background: "rgba(15,17,23,0.85)",
-              border: "1px solid rgba(29,78,216,0.3)",
-              borderRadius: 20, padding: "5px 18px",
-            }}>
-              Show more
-            </span>
-          </div>
-        )}
-      </div>
-
-      {expanded && hasMore && (
-        <button
-          onClick={() => setExpanded(false)}
-          style={{
-            marginTop: 8, background: "none", border: "none",
-            cursor: "pointer", fontSize: 12, color: "#4a4865",
-            display: "block", width: "100%", textAlign: "center", padding: "6px 0",
-          }}
-        >
-          Show less
-        </button>
-      )}
-    </div>
-  )
-}
-
 // ── Spectrum chart ─────────────────────────────────────────────────
 // Real measured signals as axes (never invented trait names), self-relative
 // chart-scaling (never a population comparison), no number printed anywhere —
@@ -469,7 +348,7 @@ export default function ProfileView({ active }) {
   }
 
   const { session_count, profile_strength, portrait, how_you_shift_by_context,
-          blind_spots, mirror_feed, recurring_coaching } = profile
+          blind_spots } = profile
 
   const steady = portrait?.steady || []
   const stillForming = portrait?.still_forming || []
@@ -612,65 +491,6 @@ export default function ProfileView({ active }) {
             {stillForming.map(item => (
               <StillFormingRow key={item.signal_key} item={item} />
             ))}
-          </div>
-        </div>
-        </Reveal>
-      )}
-
-      {/* Mirror Feed */}
-      <Reveal delay={80}>
-      <div>
-        <div style={{ marginBottom: 12 }}>
-          <SectionLabel>Cross-Session</SectionLabel>
-          <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-            Mirror Feed
-          </h2>
-        </div>
-        <MirrorFeed insights={mirror_feed} />
-      </div>
-      </Reveal>
-
-      {/* Recurring Coaching */}
-      {recurring_coaching?.length > 0 && (
-        <Reveal delay={100}>
-        <div>
-          <div style={{ marginBottom: 12 }}>
-            <SectionLabel>Keeps Coming Up</SectionLabel>
-            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-              Recurring Themes
-            </h2>
-            <p style={{ fontSize: 12, color: "#4a4d6a", margin: "4px 0 0" }}>
-              Areas flagged in multiple sessions — these are your persistent development opportunities
-            </p>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {recurring_coaching.map((item, i) => {
-              const accent = ["#f87171", "#fb923c", "#818cf8"][i] || "#8b89aa"
-              return (
-                <div key={item.area} style={{
-                  padding: "14px 16px", borderRadius: 10,
-                  background: "#151922", border: `1px solid #1e2438`,
-                  borderLeft: `3px solid ${accent}`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: item.tip ? 8 : 0 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff",
-                      textTransform: "capitalize" }}>
-                      {item.area}
-                    </span>
-                    <span style={{ fontSize: 11, color: accent, fontWeight: 600,
-                      background: `${accent}15`, border: `1px solid ${accent}30`,
-                      borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap", marginLeft: 12 }}>
-                      {item.count} of {session_count} sessions
-                    </span>
-                  </div>
-                  {item.tip && (
-                    <p style={{ margin: 0, fontSize: 12, color: "#8b89aa", lineHeight: 1.65 }}>
-                      {item.tip}
-                    </p>
-                  )}
-                </div>
-              )
-            })}
           </div>
         </div>
         </Reveal>
