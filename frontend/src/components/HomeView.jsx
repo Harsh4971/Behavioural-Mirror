@@ -77,7 +77,7 @@ function HomeCard({ card, i, onDismiss }) {
         <div style={{ marginTop: 4 }}>
           <div style={{ height: 3, background: "#1e2438", borderRadius: 2 }}>
             <div style={{ height: "100%", borderRadius: 2,
-              width: `${Math.round((card.sample_count / card.min_needed) * 100)}%`,
+              width: `${Math.min(100, Math.round((card.sample_count / card.min_needed) * 100))}%`,
               background: "#3a3a52" }} />
           </div>
           <p style={{ margin: "8px 0 0", fontSize: 11, color: "#4a4865" }}>

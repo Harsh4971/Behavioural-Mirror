@@ -94,6 +94,17 @@
   function MirrorRTCPeerConnection(...args) {
     const pc = new OrigRTC(...args);
 
+    // ── Diagnostics — investigating intermittent audio dropouts during
+    // recording. Pure logging, no behavior change. connectionState/
+    // iceConnectionState transitions are the direct signal for the actual
+    // Meet call itself degrading (as opposed to just our own recording tap).
+    pc.addEventListener('connectionstatechange', () => {
+      console.warn(`[mirror-webrtc] DIAG: pc.connectionState → ${pc.connectionState}`);
+    });
+    pc.addEventListener('iceconnectionstatechange', () => {
+      console.warn(`[mirror-webrtc] DIAG: pc.iceConnectionState → ${pc.iceConnectionState}`);
+    });
+
     pc.addEventListener('track', ({ track }) => {
       if (track.kind !== 'audio' || activeTracks.has(track.id)) return;
 
@@ -102,6 +113,9 @@
       remoteTrackCount++;
       const label = `SPEAKER_0${remoteTrackCount}`;
       console.log(`[mirror-webrtc] Captured remote audio track #${remoteTrackCount} → ${label}`);
+
+      track.onmute = () => console.warn(`[mirror-webrtc] DIAG: remote track ${label} MUTED`);
+      track.onunmute = () => console.log(`[mirror-webrtc] DIAG: remote track ${label} unmuted`);
 
       const vad = createVAD(track, label);
       activeTracks.set(track.id, { ...vad, label });
@@ -139,6 +153,12 @@
       for (const track of audioTracks) {
         if (!activeTracks.has('local_' + track.id)) {
           console.log('[mirror-webrtc] Intercepted local mic track → SPEAKER_00');
+          // DIAG: this is Meet's own mic track (the one that actually reaches the
+          // other participants) — mute here means your voice genuinely isn't going
+          // out, distinct from anything in our own separate offscreen recording tap.
+          track.onmute = () => console.warn('[mirror-webrtc] DIAG: local Meet mic track MUTED — your voice is not reaching the call');
+          track.onunmute = () => console.log('[mirror-webrtc] DIAG: local Meet mic track unmuted');
+
           const vad = createVAD(track, 'SPEAKER_00');
           activeTracks.set('local_' + track.id, { ...vad, label: 'SPEAKER_00' });
 

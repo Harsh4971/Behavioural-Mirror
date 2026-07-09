@@ -22,8 +22,33 @@ let chunkSent = false;       // guards against double-send if both onstop handle
 let chunkIndex = 0;
 let chunkTimer = null;
 let playbackCtx = null; // AudioContext that routes captured audio back to speakers
+let diagnosticTimer = null; // periodic heartbeat — logs state even if no mute/unmute event ever fires
 
 const CHUNK_MS = 15 * 60 * 1000; // 15 minutes
+
+// ── Diagnostics — investigating intermittent audio dropouts during recording.
+// Pure logging, no behavior change. mute/unmute fire when the browser/OS decides
+// a track can't currently provide data (e.g. device contention) — a direct signal
+// for "my voice doesn't go there" if it's caused by two concurrent getUserMedia
+// sessions on the same mic. AudioContext statechange covers the tab-audio
+// playback-restoration path silently dropping ("can't hear the meeting").
+function instrumentTrack(track, label) {
+  track.onmute = () => console.warn(`[mirror-offscreen] DIAG: ${label} track MUTED (readyState=${track.readyState})`);
+  track.onunmute = () => console.log(`[mirror-offscreen] DIAG: ${label} track unmuted`);
+  track.onended = () => console.warn(`[mirror-offscreen] DIAG: ${label} track ENDED unexpectedly`);
+  console.log(`[mirror-offscreen] DIAG: ${label} track initial state — muted=${track.muted}, enabled=${track.enabled}, readyState=${track.readyState}`);
+}
+
+function startDiagnosticHeartbeat() {
+  diagnosticTimer = setInterval(() => {
+    const micTrack = micStream?.getAudioTracks()[0];
+    const tabTrack = tabStream?.getAudioTracks()[0];
+    console.log('[mirror-offscreen] DIAG heartbeat —',
+      `mic: muted=${micTrack?.muted} readyState=${micTrack?.readyState} |`,
+      `tab: muted=${tabTrack?.muted} readyState=${tabTrack?.readyState} |`,
+      `playbackCtx.state=${playbackCtx?.state}`);
+  }, 15000);
+}
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.target !== 'offscreen') return;
@@ -68,7 +93,10 @@ async function startRecording(streamId) {
   if (audioTracks.length === 0) {
     console.error('[mirror-offscreen] ERROR: Tab capture stream has no audio tracks! Recording will produce empty audio.');
   } else {
-    audioTracks.forEach((t, i) => console.log(`[mirror-offscreen] Audio track ${i}: ${t.label}, enabled=${t.enabled}, muted=${t.muted}`));
+    audioTracks.forEach((t, i) => {
+      console.log(`[mirror-offscreen] Audio track ${i}: ${t.label}, enabled=${t.enabled}, muted=${t.muted}`);
+      instrumentTrack(t, 'tab');
+    });
   }
 
   // Route captured audio back to local speakers.
@@ -79,6 +107,10 @@ async function startRecording(streamId) {
     const source = playbackCtx.createMediaStreamSource(tabStream);
     source.connect(playbackCtx.destination);
     console.log('[mirror-offscreen] Audio routed back to speakers — local playback restored');
+    console.log(`[mirror-offscreen] DIAG: playbackCtx initial state=${playbackCtx.state}`);
+    playbackCtx.onstatechange = () => {
+      console.warn(`[mirror-offscreen] DIAG: playbackCtx state changed → ${playbackCtx.state}`);
+    };
   } catch (e) {
     console.warn('[mirror-offscreen] WARNING: Could not restore local audio playback:', e.message);
   }
@@ -93,12 +125,17 @@ async function startRecording(streamId) {
     micAvailable = true;
     const micTracks = micStream.getAudioTracks();
     console.log(`[mirror-offscreen] Mic stream acquired — ${micTracks.length} audio track(s)`);
-    micTracks.forEach((t, i) => console.log(`[mirror-offscreen] Mic track ${i}: ${t.label}, enabled=${t.enabled}, muted=${t.muted}`));
+    micTracks.forEach((t, i) => {
+      console.log(`[mirror-offscreen] Mic track ${i}: ${t.label}, enabled=${t.enabled}, muted=${t.muted}`);
+      instrumentTrack(t, 'mic');
+    });
   } catch (e) {
     micAvailable = false;
     micStream = null;
     console.error('[mirror-offscreen] ERROR: Mic capture failed — continuing with tab-only recording:', e.message);
   }
+
+  startDiagnosticHeartbeat();
 
   chunkIndex = 0;
   beginChunk();
@@ -219,6 +256,8 @@ async function blobToBase64(blob) {
 function stopRecording() {
   clearInterval(chunkTimer);
   chunkTimer = null;
+  clearInterval(diagnosticTimer);
+  diagnosticTimer = null;
 
   if (tabRecorder && tabRecorder.state === 'recording') {
     console.log('[mirror-offscreen] Stopping tab MediaRecorder (final chunk)...');

@@ -78,7 +78,11 @@ def build_still_forming_cards(evidence: dict, dismissed: set) -> list:
         if ev.get("is_steady"):
             continue
         remaining = ev["min_samples_required"] - ev["sample_count"]
-        if remaining > _STILL_FORMING_PROXIMITY:
+        # remaining <= 0 means the sample floor is already met but the signal is
+        # still too variable (high CV) to call steady — that's not "forming",
+        # more sessions alone won't fix it. Say nothing rather than mislabel it
+        # as approaching-steady forever (CLAUDE.md rule #7: silence is allowed).
+        if remaining <= 0 or remaining > _STILL_FORMING_PROXIMITY:
             continue
         card_key = f"still_forming:{signal_key}"
         if card_key in dismissed:

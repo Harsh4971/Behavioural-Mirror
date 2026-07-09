@@ -170,7 +170,7 @@ function SteadySignalCard({ item, i }) {
 // ── Still forming — not enough evidence yet ────────────────────────
 
 function StillFormingRow({ item }) {
-  const pct = Math.round((item.sample_count / item.min_needed) * 100)
+  const pct = Math.min(100, Math.round((item.sample_count / item.min_needed) * 100))
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12,
       padding: "9px 0", borderBottom: "1px solid #131827" }}>

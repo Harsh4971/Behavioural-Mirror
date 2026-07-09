@@ -1368,7 +1368,10 @@ def get_profile(user_id: str = Depends(get_current_user)):
                 "framing": llm.get("framing", "observation"),
                 "note": llm.get("note", ""),
             })
-        else:
+        elif ev["sample_count"] < ev["min_samples_required"]:
+            # Only genuinely "still forming" — enough-samples-but-too-variable
+            # signals are omitted entirely rather than mislabeled as approaching
+            # steady (they'd sit at "6 of 5" forever; see home_feed.py's identical fix).
             still_forming.append({
                 "signal_key": signal_key,
                 "label": label,
