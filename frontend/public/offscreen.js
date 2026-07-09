@@ -108,8 +108,17 @@ async function startRecording(streamId) {
     source.connect(playbackCtx.destination);
     console.log('[mirror-offscreen] Audio routed back to speakers — local playback restored');
     console.log(`[mirror-offscreen] DIAG: playbackCtx initial state=${playbackCtx.state}`);
-    playbackCtx.onstatechange = () => {
-      console.warn(`[mirror-offscreen] DIAG: playbackCtx state changed → ${playbackCtx.state}`);
+    // Capture a stable reference for the closure — the outer `playbackCtx` variable
+    // gets reassigned to null in stopRecording() before this AudioContext's own
+    // final 'closed' statechange event fires, so reading the outer variable here
+    // throws. Reading .state on the object itself is always safe, even after close().
+    const ctxRef = playbackCtx;
+    ctxRef.onstatechange = () => {
+      if (ctxRef.state === 'suspended') {
+        console.warn(`[mirror-offscreen] DIAG: playbackCtx SUSPENDED — you may not be able to hear the meeting right now`);
+      } else {
+        console.log(`[mirror-offscreen] DIAG: playbackCtx state changed → ${ctxRef.state}`);
+      }
     };
   } catch (e) {
     console.warn('[mirror-offscreen] WARNING: Could not restore local audio playback:', e.message);

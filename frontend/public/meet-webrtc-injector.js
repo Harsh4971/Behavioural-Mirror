@@ -98,11 +98,14 @@
     // recording. Pure logging, no behavior change. connectionState/
     // iceConnectionState transitions are the direct signal for the actual
     // Meet call itself degrading (as opposed to just our own recording tap).
+    const CONCERNING_STATES = new Set(['failed', 'disconnected']);
     pc.addEventListener('connectionstatechange', () => {
-      console.warn(`[mirror-webrtc] DIAG: pc.connectionState → ${pc.connectionState}`);
+      const log = CONCERNING_STATES.has(pc.connectionState) ? console.warn : console.log;
+      log(`[mirror-webrtc] DIAG: pc.connectionState → ${pc.connectionState}`);
     });
     pc.addEventListener('iceconnectionstatechange', () => {
-      console.warn(`[mirror-webrtc] DIAG: pc.iceConnectionState → ${pc.iceConnectionState}`);
+      const log = CONCERNING_STATES.has(pc.iceConnectionState) ? console.warn : console.log;
+      log(`[mirror-webrtc] DIAG: pc.iceConnectionState → ${pc.iceConnectionState}`);
     });
 
     pc.addEventListener('track', ({ track }) => {
