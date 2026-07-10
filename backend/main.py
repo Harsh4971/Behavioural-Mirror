@@ -36,10 +36,11 @@ from pipeline.insight_generator import InsightGenerator
 from pipeline.dimension_scorer import DimensionScorer
 from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
-from pipeline.personality_synthesizer import PersonalitySynthesizer
 from pipeline.portrait_synthesizer import PortraitSynthesizer
 from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, compute_signal_evidence, extract_value
 from pipeline import home_feed
+from pipeline.llm_utils import extract_text
+from anthropic import Anthropic
 from db.database import supabase_admin
 
 app = FastAPI()
@@ -118,12 +119,12 @@ def _cleanup_stale_cache():
 print("[startup] Loading models...")
 transcriber = Transcriber(api_key=os.getenv("DEEPGRAM_API_KEY"))
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
-insight_gen = InsightGenerator(api_key=os.getenv("GROQ_API_KEY"))
-context_detector = ContextDetector(api_key=os.getenv("GROQ_API_KEY"))
+insight_gen = InsightGenerator(api_key=os.getenv("ANTHROPIC_API_KEY"))
+context_detector = ContextDetector(api_key=os.getenv("ANTHROPIC_API_KEY"))
 dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
-personality_synth = PersonalitySynthesizer(api_key=os.getenv("GROQ_API_KEY"))
-portrait_synth = PortraitSynthesizer(api_key=os.getenv("GROQ_API_KEY"))
+portrait_synth = PortraitSynthesizer(api_key=os.getenv("ANTHROPIC_API_KEY"))
+anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 print("[startup] All models loaded. Server ready.")
 
 # In-memory caches — cleared on server restart, Supabase is the durable layer
@@ -401,9 +402,9 @@ def privacy_policy():
   <h2>How your data is processed</h2>
   <p>When you submit a recording, it is sent securely to our processing server. The following steps occur:</p>
   <ul>
-    <li>Audio is written to temporary server storage and transcribed using the <strong>Groq Whisper API</strong> (Groq's privacy policy applies to transcription).</li>
+    <li>Audio is written to temporary server storage and transcribed using the <strong>Deepgram API</strong> (Deepgram's privacy policy applies to transcription; transcription requests are opted out of Deepgram's model-improvement program).</li>
     <li>Speaker diarization and voice analysis are performed using <strong>pyannote.audio</strong> models running on our server.</li>
-    <li>Behavioural insights are generated using <strong>Groq's language model API</strong>.</li>
+    <li>Behavioural insights are generated using <strong>Anthropic's Claude API</strong>.</li>
     <li>The audio file is permanently deleted from the server immediately once processing is complete.</li>
   </ul>
   <p>Analysis results (not the audio) are stored in your account database hosted on <strong>Supabase</strong>, a GDPR-compliant cloud database provider.</p>
@@ -414,7 +415,8 @@ def privacy_policy():
   <h2>Third-party services</h2>
   <ul>
     <li><strong>Supabase</strong> — authentication and database storage. <a href="https://supabase.com/privacy" target="_blank">Privacy policy</a>.</li>
-    <li><strong>Groq</strong> — speech transcription and language model inference. <a href="https://groq.com/privacy-policy/" target="_blank">Privacy policy</a>.</li>
+    <li><strong>Deepgram</strong> — speech transcription. <a href="https://deepgram.com/privacy-policy" target="_blank">Privacy policy</a>.</li>
+    <li><strong>Anthropic</strong> — language model inference for behavioural insights. <a href="https://www.anthropic.com/legal/privacy" target="_blank">Privacy policy</a>.</li>
     <li><strong>HuggingFace</strong> — model hosting and inference infrastructure. <a href="https://huggingface.co/privacy" target="_blank">Privacy policy</a>.</li>
   </ul>
 
@@ -1818,13 +1820,13 @@ RULES:
 5. Output plain text only — no JSON, no markdown headers, no bullet points"""
 
     try:
-        response = personality_synth.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+        response = anthropic_client.messages.create(
+            model="claude-sonnet-5",
             max_tokens=900,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": prompt}],
         )
-        return response.choices[0].message.content.strip()
+        return extract_text(response).strip()
     except Exception:
         return ""
 

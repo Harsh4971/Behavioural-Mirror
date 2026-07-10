@@ -1,7 +1,8 @@
 import json
-from groq import Groq
+from anthropic import Anthropic
 
 from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
+from pipeline.llm_utils import extract_text
 
 
 CONTEXT_COACHING_GUIDE = {
@@ -47,7 +48,7 @@ CONTEXT_COACHING_GUIDE = {
 
 class InsightGenerator:
     def __init__(self, api_key: str):
-        self.client = Groq(api_key=api_key)
+        self.client = Anthropic(api_key=api_key)
 
     def generate(self, signals: dict, context: str, evidence: dict = None,
                  transcript_text: str = "", dimensions: dict = None,
@@ -62,13 +63,13 @@ class InsightGenerator:
             resonance_calibration or {},
             conversation_types or [context],
         )
-        response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+        response = self.client.messages.create(
+            model="claude-sonnet-5",
             max_tokens=3000,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": prompt}],
         )
-        return self._parse_output(response.choices[0].message.content)
+        return self._parse_output(extract_text(response))
 
     def _prepare_input(self, signals: dict, context: str, evidence: dict) -> dict:
         prepared = {

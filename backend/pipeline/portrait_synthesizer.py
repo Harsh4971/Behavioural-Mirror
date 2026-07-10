@@ -1,7 +1,8 @@
 import json
-from groq import Groq
+from anthropic import Anthropic
 
 from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
+from pipeline.llm_utils import extract_text
 
 # How to format each signal's raw mean into human-readable text for the prompt.
 # (value * scale) formatted with `fmt`, followed by `unit`.
@@ -32,7 +33,7 @@ class PortraitSynthesizer:
     """
 
     def __init__(self, api_key: str):
-        self.client = Groq(api_key=api_key)
+        self.client = Anthropic(api_key=api_key)
 
     def synthesize(self, evidence: dict, blind_spots: list, session_count: int) -> dict:
         overall = evidence.get("overall", {})
@@ -59,13 +60,13 @@ class PortraitSynthesizer:
             return {"signals": [], "context_shifts": [], "how_it_may_land": []}
 
         prompt = self._build_prompt(steady_overall, context_shift_candidates, session_count)
-        response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
+        response = self.client.messages.create(
+            model="claude-sonnet-5",
             max_tokens=1800,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": prompt}],
         )
-        return self._parse(response.choices[0].message.content)
+        return self._parse(extract_text(response))
 
     def _build_prompt(self, steady_overall: dict, context_shift_candidates: dict,
                       session_count: int) -> str:

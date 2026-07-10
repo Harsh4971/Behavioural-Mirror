@@ -1,5 +1,7 @@
 import json
-from groq import Groq
+from anthropic import Anthropic
+
+from pipeline.llm_utils import extract_text
 
 CONTEXT_TYPES = {
     "social":        "Casual chat, catching up, small talk, low-stakes relationship maintenance",
@@ -16,7 +18,7 @@ CONTEXT_TYPES = {
 
 class ContextDetector:
     def __init__(self, api_key: str):
-        self.client = Groq(api_key=api_key)
+        self.client = Anthropic(api_key=api_key)
 
     def detect(self, transcript_text: str) -> list:
         types_list = "\n".join(f"- {k}: {v}" for k, v in CONTEXT_TYPES.items())
@@ -33,13 +35,13 @@ Example: ["evaluative", "adversarial"]
 Use only the exact keys listed above. No explanation, no markdown."""
 
         try:
-            response = self.client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
+            response = self.client.messages.create(
+                model="claude-sonnet-5",
                 max_tokens=50,
+                thinking={"type": "disabled"},
+                messages=[{"role": "user", "content": prompt}],
             )
-            raw = response.choices[0].message.content.strip()
+            raw = extract_text(response).strip()
             if "```" in raw:
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
