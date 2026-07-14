@@ -37,8 +37,11 @@ from pipeline.dimension_scorer import DimensionScorer
 from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.portrait_synthesizer import PortraitSynthesizer
-from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, compute_signal_evidence, extract_value
+from pipeline.evidence_gate import (
+    SIGNAL_EVIDENCE_CONFIG, SUB_SIGNAL_EVIDENCE_CONFIG, compute_evidence, extract_value
+)
 from pipeline import home_feed
+from pipeline.trigger_detector import run_trigger_detection
 from pipeline.llm_utils import extract_text
 from anthropic import Anthropic
 from db.database import supabase_admin
@@ -203,15 +206,20 @@ def _compute_profile_evidence(parsed: list) -> dict:
         values_by_signal = _signal_values(sessions)
         result = {}
         for signal_key, values in values_by_signal.items():
-            ev = compute_signal_evidence(signal_key, values)  # filters None internally
+            ev = compute_evidence(signal_key, values)  # filters None internally; dispatches continuous/categorical
+            is_categorical = SIGNAL_EVIDENCE_CONFIG[signal_key]["kind"] == "categorical"
             non_none = [v for v in values if v is not None]  # chronological, oldest→newest
-            # recent-vs-established only computed here for a SINGLE context (see
-            # by_context below) — computing it on the cross-context pool is
-            # misleading: a run of e.g. social sessions can drag the "recent"
-            # average down for reasons that have nothing to do with a genuine
-            # behavioral shift, just a different conversation type happening
-            # recently. Self-relative framing has to stay within one context.
-            if compute_shift and ev["is_steady"] and len(non_none) >= 3:
+            # recent-vs-established shift is only meaningful for a continuous
+            # signal (needs a numeric mean) — categorical dims (pacing_arc,
+            # energy_arc) express "progress" via drift/context-shift events
+            # instead, not a shift_pct card. Also only computed here for a
+            # SINGLE context (see by_context below) — computing it on the
+            # cross-context pool is misleading: a run of e.g. social sessions
+            # can drag the "recent" average down for reasons that have nothing
+            # to do with a genuine behavioral shift, just a different
+            # conversation type happening recently. Self-relative framing has
+            # to stay within one context.
+            if not is_categorical and compute_shift and ev["is_steady"] and len(non_none) >= 3:
                 recent = non_none[-3:]
                 ev["recent_mean"] = round(float(np.mean(recent)), 3)
                 ev["shift_pct"] = (
@@ -234,8 +242,28 @@ def _compute_profile_evidence(parsed: list) -> dict:
     return {"overall": overall, "by_context": by_context}
 
 
+def _compute_sub_signal_evidence(parsed: list) -> dict:
+    """Evidence for the 3 fold-in sub-signals (question_pickup, gets_interrupted,
+    long_turn_rate) — pooled only, no by_context split (subs don't get their own
+    context-shift treatment, see evidence_gate.SUB_SIGNAL_EVIDENCE_CONFIG). Kept
+    separate from _compute_profile_evidence's main 15-dimension dicts so the
+    You-page steady/still-forming lists and profile_strength_pct stay scoped to
+    the real dimensions — this is only consumed for sub-note gating (e.g.
+    portrait_synthesizer's "how it may land" section)."""
+    result = {}
+    for sub_key in SUB_SIGNAL_EVIDENCE_CONFIG:
+        values = []
+        for p in parsed:
+            try:
+                values.append(extract_value(sub_key, p["sig"]))
+            except (KeyError, TypeError):
+                pass
+        result[sub_key] = compute_evidence(sub_key, values, SUB_SIGNAL_EVIDENCE_CONFIG)
+    return result
+
+
 def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict,
-                                blind_spots: list) -> dict:
+                                blind_spots: list, parsed: list) -> dict:
     """Evidence-based replacement for the old dimension-scoring personality
     synthesis (retired). Reuses the user_profiles.personality_json /
     session_count_at_synthesis columns (repurposed, different shape — no schema
@@ -261,7 +289,8 @@ def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict
     except Exception:
         pass
 
-    portrait = portrait_synth.synthesize(evidence, blind_spots, session_count)
+    sub_evidence = _compute_sub_signal_evidence(parsed)
+    portrait = portrait_synth.synthesize(evidence, blind_spots, session_count, sub_evidence)
     _portrait_cache[cache_key] = portrait
 
     try:
@@ -1044,6 +1073,19 @@ def _run_finalize_job(session_id, confirmed_speaker):
         )
         logger.info("[%s]    ✓ Session saved to Supabase", _sid(session_id))
 
+        # Home feed dimension-maturation events — diffs this session's evidence
+        # against persisted state and writes any newly fired event. Wrapped
+        # defensively (same pattern as the consolidation trigger below) so a
+        # bug here can never break finalize itself.
+        try:
+            fired_events = run_trigger_detection(user_id, session_id, primary_context)
+            if fired_events:
+                logger.info("[%s]    ✓ %d dimension event(s) fired: %s", _sid(session_id),
+                            len(fired_events), [e["trigger_type"] for e in fired_events])
+        except Exception:
+            logger.error("[%s]    ✕ Trigger detection failed (non-fatal):\n%s",
+                          _sid(session_id), _tb.format_exc())
+
         # Trigger background consolidation if user has enough sessions
         try:
             count_res = supabase_admin.table("sessions").select(
@@ -1350,23 +1392,30 @@ def get_profile(user_id: str = Depends(get_current_user)):
     # numeric dimension-scoring personality synthesis entirely — no invented
     # dimensions, no 0-100 scores, no trait labels.
     evidence = _compute_profile_evidence(parsed)
-    portrait_llm = _get_or_synthesize_portrait(user_id, n, evidence, blind_spots)
+    portrait_llm = _get_or_synthesize_portrait(user_id, n, evidence, blind_spots, parsed)
     llm_notes_by_signal = {s["signal_key"]: s for s in portrait_llm.get("signals", [])}
     llm_context_notes = {s["signal_key"]: s["note"] for s in portrait_llm.get("context_shifts", [])}
 
     steady_signals = []
     still_forming = []
     for signal_key, ev in evidence["overall"].items():
-        label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
+        cfg = SIGNAL_EVIDENCE_CONFIG[signal_key]
+        label = cfg["label"]
         if ev["is_steady"]:
             llm = llm_notes_by_signal.get(signal_key, {})
             steady_signals.append({
                 "signal_key": signal_key,
                 "label": label,
-                "mean": ev["mean"],
+                "kind": cfg["kind"],
+                # continuous dims populate mean/recent_mean/shift_pct; categorical
+                # dims (pacing_arc, energy_arc) populate mode_label/agreement_ratio
+                # instead — never both, since categorical has no numeric mean.
+                "mean": ev.get("mean"),
+                "mode_label": ev.get("mode_label"),
+                "agreement_ratio": ev.get("agreement_ratio"),
                 "sample_count": ev["sample_count"],
-                "recent_mean": ev["recent_mean"],
-                "shift_pct": ev["shift_pct"],
+                "recent_mean": ev.get("recent_mean"),
+                "shift_pct": ev.get("shift_pct"),
                 "framing": llm.get("framing", "observation"),
                 "note": llm.get("note", ""),
             })
@@ -1383,8 +1432,10 @@ def get_profile(user_id: str = Depends(get_current_user)):
 
     how_you_shift_by_context = []
     for signal_key, note in llm_context_notes.items():
+        is_categorical = SIGNAL_EVIDENCE_CONFIG[signal_key]["kind"] == "categorical"
+        value_field = "mode_label" if is_categorical else "mean"
         by_ctx = {
-            ctx: data[signal_key]["mean"]
+            ctx: data[signal_key][value_field]
             for ctx, data in evidence["by_context"].items()
             if data.get(signal_key, {}).get("is_steady")
         }
@@ -1428,31 +1479,30 @@ def _get_dismissed_card_keys(user_id: str) -> set:
 
 @app.get("/api/home")
 def get_home(user_id: str = Depends(get_current_user)):
+    """v2 Home feed: a single interleaved timeline of session recap cards
+    (unconditional, one per session) and dimension-maturation event cards
+    (fired by pipeline/trigger_detector.py at finalize time), sorted newest
+    first. No longer needs evidence/portrait computation at all — that LLM
+    call only runs when the You page itself is viewed, not on every Home load.
+    The "7 visible + 8th faded + Show more" behavior is a frontend rendering
+    contract over this complete, uncapped list — backend returns everything.
+    """
     parsed = _fetch_and_parse_sessions(user_id)
     if len(parsed) < 1:
         return {"insufficient_data": True, "session_count": 0, "cards": []}
 
-    n = len(parsed)
-    recorded_contexts = set(p["context"] for p in parsed)
-    blind_spots = _compute_blind_spots(recorded_contexts)
-
-    # Same evidence + portrait computation /api/profile uses — same cache key,
-    # so viewing Home and You back-to-back costs zero extra LLM calls either way.
-    evidence = _compute_profile_evidence(parsed)
-    portrait_llm = _get_or_synthesize_portrait(user_id, n, evidence, blind_spots)
-    llm_notes_by_signal = {s["signal_key"]: s for s in portrait_llm.get("signals", [])}
-
     dismissed = _get_dismissed_card_keys(user_id)
 
-    cards = []
-    cards += home_feed.build_strength_cards(evidence, llm_notes_by_signal, dismissed)
-    cards += home_feed.build_observation_cards(evidence, llm_notes_by_signal, dismissed)
-    cards += home_feed.build_how_it_may_land_cards(portrait_llm, dismissed)
-    cards += home_feed.build_progress_cards(evidence, dismissed)
-    cards += home_feed.build_still_forming_cards(evidence, dismissed)
-    cards += home_feed.build_session_observation_card(parsed, dismissed)
+    events_res = supabase_admin.table("dimension_events").select("*").eq(
+        "user_id", user_id
+    ).order("created_at", desc=True).execute()
 
-    return {"insufficient_data": False, "session_count": n, "cards": cards}
+    cards = []
+    cards += home_feed.build_session_recap_cards(parsed, dismissed)
+    cards += home_feed.build_dimension_event_cards(events_res.data, dismissed)
+    cards.sort(key=lambda c: c["date"], reverse=True)
+
+    return {"insufficient_data": False, "session_count": len(parsed), "cards": cards}
 
 
 @app.post("/api/home/dismiss")
@@ -1718,7 +1768,7 @@ def _get_context_evidence(user_id: str, context: str) -> dict:
             values = [extract_value(signal_key, sig) for sig in all_signals]
         except (KeyError, TypeError):
             values = []
-        evidence[signal_key] = compute_signal_evidence(signal_key, values)
+        evidence[signal_key] = compute_evidence(signal_key, values)
 
     return {"context": context, "session_count": len(context_sessions), "signals": evidence}
 

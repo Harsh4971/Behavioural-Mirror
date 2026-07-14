@@ -1,7 +1,7 @@
 import json
 from anthropic import Anthropic
 
-from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
+from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG, extract_value
 from pipeline.llm_utils import extract_text
 
 
@@ -98,22 +98,28 @@ class InsightGenerator:
             # in which case it's listed as not-yet-steady so the prompt can explicitly
             # instruct against inventing a pattern for it. Self-relative only (rule #4) —
             # no population comparison of any kind.
-            signal_current_value = {
-                "talk_ratio": prepared["talk_ratio_user"],
-                "questions": prepared["user_questions_asked"],
-                "speech_rate": prepared["speech_rate_wpm"],
-                "response_latency": prepared["avg_response_latency_s"],
-                "hedging": prepared["hedging_rate"],
-                "directness": prepared["directness_rate"],
-                "question_impact": prepared["question_pickup_rate"],
-                "drive_vs_follow": prepared["drive_score"],
-                "building_on_others": prepared["building_on_rate"],
-            }
+            #
+            # Uses extract_value (the same extraction logic the evidence system itself
+            # uses) rather than a hand-maintained key mapping — a parallel mapping here
+            # would silently go stale every time a dimension is renamed or added, which
+            # is exactly what happened to the old 9-key version of this block.
             steady = {}
             not_yet_steady = []
             for sig_key, sig_evidence in evidence.get("signals", {}).items():
-                current = signal_current_value.get(sig_key)
-                if sig_evidence["is_steady"] and current is not None:
+                try:
+                    current = extract_value(sig_key, signals)
+                except (KeyError, TypeError):
+                    current = None
+                is_categorical = SIGNAL_EVIDENCE_CONFIG.get(sig_key, {}).get("kind") == "categorical"
+
+                if sig_evidence["is_steady"] and current is not None and is_categorical:
+                    steady[sig_key] = {
+                        "current_label": current,
+                        "your_usual_label": sig_evidence["mode_label"],
+                        "agreement_ratio": sig_evidence["agreement_ratio"],
+                        "sample_count": sig_evidence["sample_count"],
+                    }
+                elif sig_evidence["is_steady"] and current is not None:
                     delta = current - sig_evidence["mean"]
                     delta_pct = (delta / sig_evidence["mean"] * 100) if sig_evidence["mean"] else None
                     steady[sig_key] = {
@@ -181,6 +187,16 @@ CONVERSATION TRANSCRIPT:
             lines = []
             for sig_key, c in ev["steady"].items():
                 label = SIGNAL_EVIDENCE_CONFIG[sig_key]["label"]
+                if "current_label" in c:
+                    # Categorical dim (pacing_arc, energy_arc) — no numeric delta,
+                    # just whether this session's label matches the established mode.
+                    same = c["current_label"] == c["your_usual_label"]
+                    lines.append(
+                        f"  {label}: {c['current_label']} this session "
+                        f"({'matches' if same else 'differs from'} your usual {c['your_usual_label']}, "
+                        f"based on {c['sample_count']} past {ctx_label} sessions)"
+                    )
+                    continue
                 if c["delta"] > 0:
                     arrow = "more than"
                 elif c["delta"] < 0:

@@ -5,23 +5,33 @@ from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
 from pipeline.llm_utils import extract_text
 
 # How to format each signal's raw mean into human-readable text for the prompt.
-# (value * scale) formatted with `fmt`, followed by `unit`.
+# (value * scale) formatted with `fmt`, followed by `unit`. Categorical signals
+# (pacing_arc, energy_arc) aren't listed here — they have no numeric mean to
+# scale, see the branch in _format_mean below.
 _SIGNAL_FORMAT = {
-    "talk_ratio":         (100, "{:.0f}", "% of speaking time"),
-    "questions":          (1,   "{:.1f}", " questions asked per session"),
-    "speech_rate":        (1,   "{:.0f}", " words per minute"),
-    "response_latency":   (1,   "{:.1f}", "s before responding"),
-    "hedging":            (1,   "{:.1f}", " hedging phrases per 100 words"),
-    "directness":         (1,   "{:.1f}", " direct/assertive phrases per 100 words"),
-    "question_impact":    (100, "{:.0f}", "% of your questions picked up by the room"),
-    "drive_vs_follow":    (100, "{:.0f}", "% drive score (higher = initiates more, lower = follows more)"),
-    "building_on_others": (100, "{:.0f}", "% of your turns build on someone else's point"),
+    "talk_ratio":               (100, "{:.0f}", "% of speaking time"),
+    "curiosity":                (1,   "{:.2f}", " question-turns per 100 words"),
+    "turn_taking_assertiveness": (1,  "{:.1f}", " interruptions per 10 speaker changes"),
+    "conversational_drive":     (100, "{:.0f}", "% drive score (higher = initiates more, lower = follows more)"),
+    "hedging":                  (1,   "{:.1f}", " hedging phrases per 100 words"),
+    "directness":               (1,   "{:.1f}", " direct/assertive phrases per 100 words"),
+    "building_on_others":       (100, "{:.0f}", "% of your turns build on someone else's point"),
+    "pace":                     (1,   "{:.0f}", " words per minute"),
+    "vocal_expressiveness":     (1,   "{:.1f}", " Hz of pitch variation"),
+    "turn_length":              (1,   "{:.1f}", "s per turn on average"),
+    "vocabulary_richness":      (100, "{:.0f}", "% unique words in a typical stretch of speech"),
+    "fillers":                  (1,   "{:.2f}", " filler words per 100 words"),
+    "response_latency":         (1,   "{:.1f}", "s before responding"),
 }
 
 
-def _format_mean(signal_key: str, mean: float) -> str:
+def _format_mean(signal_key: str, value) -> str:
+    """Formats a continuous signal's numeric mean, or a categorical signal's
+    string mode label, into human-readable text for the prompt."""
+    if SIGNAL_EVIDENCE_CONFIG.get(signal_key, {}).get("kind") == "categorical":
+        return f"consistently {value}"
     scale, fmt, unit = _SIGNAL_FORMAT[signal_key]
-    return fmt.format(mean * scale) + unit
+    return fmt.format(value * scale) + unit
 
 
 class PortraitSynthesizer:
@@ -35,7 +45,8 @@ class PortraitSynthesizer:
     def __init__(self, api_key: str):
         self.client = Anthropic(api_key=api_key)
 
-    def synthesize(self, evidence: dict, blind_spots: list, session_count: int) -> dict:
+    def synthesize(self, evidence: dict, blind_spots: list, session_count: int,
+                    sub_evidence: dict = None) -> dict:
         overall = evidence.get("overall", {})
         by_context = evidence.get("by_context", {})
 
@@ -48,8 +59,10 @@ class PortraitSynthesizer:
         # their own contexts, never against other people.
         context_shift_candidates = {}
         for signal_key in SIGNAL_EVIDENCE_CONFIG:
+            is_categorical = SIGNAL_EVIDENCE_CONFIG[signal_key]["kind"] == "categorical"
+            value_field = "mode_label" if is_categorical else "mean"
             steady_contexts = {
-                ctx: data[signal_key]["mean"]
+                ctx: data[signal_key][value_field]
                 for ctx, data in by_context.items()
                 if data.get(signal_key, {}).get("is_steady")
             }
@@ -59,7 +72,8 @@ class PortraitSynthesizer:
         if not steady_overall and not context_shift_candidates:
             return {"signals": [], "context_shifts": [], "how_it_may_land": []}
 
-        prompt = self._build_prompt(steady_overall, context_shift_candidates, session_count)
+        prompt = self._build_prompt(steady_overall, context_shift_candidates, session_count,
+                                     sub_evidence or {})
         response = self.client.messages.create(
             model="claude-sonnet-5",
             max_tokens=1800,
@@ -69,27 +83,32 @@ class PortraitSynthesizer:
         return self._parse(extract_text(response))
 
     def _build_prompt(self, steady_overall: dict, context_shift_candidates: dict,
-                      session_count: int) -> str:
+                      session_count: int, sub_evidence: dict) -> str:
         signal_lines = []
         for signal_key, ev in steady_overall.items():
             label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
-            desc = f"  {label} ({signal_key}): established at {_format_mean(signal_key, ev['mean'])}, " \
+            is_categorical = SIGNAL_EVIDENCE_CONFIG[signal_key]["kind"] == "categorical"
+            value = ev["mode_label"] if is_categorical else ev["mean"]
+            desc = f"  {label} ({signal_key}): established at {_format_mean(signal_key, value)}, " \
                    f"based on {ev['sample_count']} sessions"
             signal_lines.append(desc)
 
-        wants_how_it_may_land = "question_impact" in steady_overall
+        # question_pickup is a sub-signal (folded into "curiosity" on Home, see
+        # evidence_gate.SUB_SIGNAL_EVIDENCE_CONFIG) — not part of steady_overall,
+        # so its own evidence dict is passed in separately.
+        wants_how_it_may_land = sub_evidence.get("question_pickup", {}).get("is_steady", False)
 
         context_lines = []
         for signal_key, by_ctx in context_shift_candidates.items():
             label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
             parts = ", ".join(
-                f"{ctx.replace('_', ' ')}: {_format_mean(signal_key, mean)}"
-                for ctx, mean in by_ctx.items()
+                f"{ctx.replace('_', ' ')}: {_format_mean(signal_key, value)}"
+                for ctx, value in by_ctx.items()
             )
             context_lines.append(f"  {label} ({signal_key}) — {parts}")
 
         how_it_may_land_task = (
-            "\nALSO: \"question follow-through\" (question_impact) is established. Write ONE "
+            "\nALSO: \"question follow-through\" is established. Write ONE "
             "additional sentence describing how this person's questions tend to LAND in the room — "
             "effect-on-others phrasing, e.g. \"your questions tend to get picked up and built on by "
             "the room\" — still self-relative (this person's own tendency), never a claim about what "
@@ -98,7 +117,7 @@ class PortraitSynthesizer:
         )
         how_it_may_land_schema = (
             ',\n  "how_it_may_land": [\n'
-            '    {"signal_key": "question_impact", "note": "one sentence"}\n  ]'
+            '    {"signal_key": "curiosity", "note": "one sentence"}\n  ]'
             if wants_how_it_may_land else ""
         )
 

@@ -2,31 +2,21 @@ import { useState, useEffect } from "react"
 import api from "../lib/api"
 import Reveal, { RevealItem } from "./Reveal"
 
-const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
-
-// Mirrors ProfileView's FRAMING_CONFIG — growth_area/observation framings of a
-// steady signal render with this palette; other card types get their own fixed
-// color below. Kept as a separate copy rather than a shared import since the
-// two views are deliberately allowed to diverge visually over time.
-const FRAMING_CONFIG = {
-  strength:    { color: "#34d399", label: "Strength" },
-  growth_area: { color: "#fb923c", label: "Growth area" },
-  observation: { color: "#818cf8", label: "Observation" },
+// Visual identity per trigger type — independent of the (not-yet-built) per-
+// dimension color palette on the You page; this is scoped to what Home's
+// dimension-event cards need: a quick visual read on WHAT KIND of thing
+// happened (a first discovery vs. a shift vs. something to just note), not
+// WHICH of the 15 dimensions it is.
+const TRIGGER_CONFIG = {
+  first_time_steady: { color: "#34d399", label: "New pattern" },
+  context_shift:      { color: "#22d3ee", label: "Context shift" },
+  drift:              { color: "#f59e0b", label: "Shifted" },
+  recurring:          { color: "#a78bfa", label: "Recurring" },
+  anomaly:            { color: "#fb7185", label: "Worth noting" },
 }
 
-const TYPE_CONFIG = {
-  strength:            { color: "#34d399", label: "Strength" },
-  how_it_may_land:     { color: "#22d3ee", label: "How it may land" },
-  progress:            { color: "#5b9cf6", label: "Progress" },
-  still_forming:       { color: "#6b6888", label: "Still forming" },
-  session_observation: { color: "#818cf8", label: "From your last session" },
-}
-
-function cardVisual(card) {
-  if (card.type === "observation") {
-    return FRAMING_CONFIG[card.framing] || FRAMING_CONFIG.observation
-  }
-  return TYPE_CONFIG[card.type] || { color: "#8b89aa", label: card.type }
+function recurringLabel(direction) {
+  return direction === "back_to_usual" ? "Back to usual" : "New pattern"
 }
 
 function DismissButton({ onDismiss }) {
@@ -40,82 +30,120 @@ function DismissButton({ onDismiss }) {
   )
 }
 
-function HomeCard({ card, i, onDismiss }) {
-  const cfg = cardVisual(card)
-  const title = card.type === "session_observation"
-    ? (card.signal || "").replace(/_/g, " ") || cfg.label
-    : (card.label || cfg.label)
-
+function CardShell({ color, title, badge, faded, onDismiss, children }) {
   return (
-    <RevealItem index={i}>
     <div style={{
       padding: "14px 16px", borderRadius: 10,
       background: "#151922", border: "1px solid #1e2438",
-      borderLeft: `3px solid ${cfg.color}`,
+      borderLeft: `3px solid ${color}`,
+      opacity: faded ? 0.45 : 1,
+      transition: "opacity 0.3s ease",
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff", textTransform: "capitalize" }}>
             {title}
           </span>
-          <span style={{ fontSize: 11, color: cfg.color, fontWeight: 600,
-            background: `${cfg.color}15`, border: `1px solid ${cfg.color}30`,
-            borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
-            {cfg.label}{card.type === "progress" && (card.direction === "up" ? " ↑" : " ↓")}
-          </span>
+          {badge && (
+            <span style={{ fontSize: 11, color, fontWeight: 600,
+              background: `${color}15`, border: `1px solid ${color}30`,
+              borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
+              {badge}
+            </span>
+          )}
         </div>
-        <DismissButton onDismiss={() => onDismiss(card.card_key)} />
+        <DismissButton onDismiss={onDismiss} />
       </div>
+      {children}
+    </div>
+  )
+}
 
+function SessionRecapCard({ card, faded, onDismiss }) {
+  const dateLabel = card.date ? new Date(card.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""
+  return (
+    <CardShell color="#818cf8" title="Session recap"
+      badge={[card.context?.replace(/_/g, " "), dateLabel].filter(Boolean).join(" · ")}
+      faded={faded} onDismiss={onDismiss}>
+      {card.conversation_summary && (
+        <p style={{ margin: "0 0 10px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
+          {card.conversation_summary}
+        </p>
+      )}
+
+      {card.observations?.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: card.coaching_suggestions?.length ? 10 : 0 }}>
+          {card.observations.map((obs, i) => (
+            <div key={i}>
+              <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.6 }}>
+                {obs.observation}
+              </p>
+              {obs.resonance_prompt && (
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b6888", fontStyle: "italic", lineHeight: 1.5 }}>
+                  💭 {obs.resonance_prompt}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.coaching_suggestions?.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+          {card.coaching_suggestions.map((s, i) => (
+            <p key={i} style={{ margin: 0, fontSize: 12, color: "#8b89aa", lineHeight: 1.55 }}>
+              <span style={{ color: "#a5a3c2", fontWeight: 600 }}>{s.area}: </span>
+              {s.suggestion}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {card.notable_pattern && (
+        <p style={{ margin: "10px 0 0", fontSize: 12, color: "#4a4865", lineHeight: 1.5, borderTop: "1px solid #1e2438", paddingTop: 8 }}>
+          {card.notable_pattern}
+        </p>
+      )}
+    </CardShell>
+  )
+}
+
+function DimensionEventCard({ card, faded, onDismiss }) {
+  const trig = TRIGGER_CONFIG[card.trigger_type] || { color: "#8b89aa", label: card.trigger_type }
+  const badge = card.trigger_type === "recurring" ? recurringLabel(card.direction) : trig.label
+  return (
+    <CardShell color={trig.color} title={card.label} badge={badge} faded={faded} onDismiss={onDismiss}>
       {card.note && (
-        <p style={{ margin: "0 0 8px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
           {card.note}
         </p>
       )}
+    </CardShell>
+  )
+}
 
-      {card.type === "still_forming" && (
-        <div style={{ marginTop: 4 }}>
-          <div style={{ height: 3, background: "#1e2438", borderRadius: 2 }}>
-            <div style={{ height: "100%", borderRadius: 2,
-              width: `${Math.min(100, Math.round((card.sample_count / card.min_needed) * 100))}%`,
-              background: "#3a3a52" }} />
-          </div>
-          <p style={{ margin: "8px 0 0", fontSize: 11, color: "#4a4865" }}>
-            {card.sample_count} of {card.min_needed} sessions
-          </p>
-        </div>
-      )}
-
-      {(card.type === "strength" || card.type === "observation") && card.sample_count != null && (
-        <p style={{ margin: 0, fontSize: 11, color: "#4a4865" }}>
-          Based on {card.sample_count} sessions
-        </p>
-      )}
-
-      {card.type === "progress" && card.context && (
-        <p style={{ margin: 0, fontSize: 11, color: "#4a4865" }}>
-          In your {card.context.replace(/_/g, " ")} conversations
-        </p>
-      )}
-
-      {card.type === "session_observation" && card.resonance_prompt && (
-        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b6888",
-          fontStyle: "italic", lineHeight: 1.5 }}>
-          💭 {card.resonance_prompt}
-        </p>
-      )}
-    </div>
+function HomeCard({ card, i, faded, onDismiss }) {
+  const dismiss = () => onDismiss(card.card_key)
+  return (
+    <RevealItem index={i}>
+      {card.type === "dimension_event"
+        ? <DimensionEventCard card={card} faded={faded} onDismiss={dismiss} />
+        : <SessionRecapCard card={card} faded={faded} onDismiss={dismiss} />}
     </RevealItem>
   )
 }
 
+const VISIBLE_COUNT = 7
+
 export default function HomeView({ active }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     if (!active) return
     setLoading(true)
+    setExpanded(false)
     api.get("/api/home")
       .then(res => setData(res.data))
       .catch(console.error)
@@ -152,6 +180,11 @@ export default function HomeView({ active }) {
   }
 
   const cards = data.cards || []
+  // Backend returns the complete, newest-first, dismissed-filtered list —
+  // pagination is purely a frontend rendering concern: 7 visible + an 8th
+  // shown faded as a teaser, "Show more" reveals the rest uncapped.
+  const hasOverflow = cards.length > VISIBLE_COUNT
+  const visibleCards = expanded ? cards : cards.slice(0, VISIBLE_COUNT + 1)
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
@@ -176,9 +209,19 @@ export default function HomeView({ active }) {
       ) : (
         <Reveal delay={80}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {cards.map((card, i) => (
-            <HomeCard key={card.card_key} card={card} i={i} onDismiss={handleDismiss} />
+          {visibleCards.map((card, i) => (
+            <HomeCard key={card.card_key} card={card} i={i}
+              faded={!expanded && hasOverflow && i === VISIBLE_COUNT}
+              onDismiss={handleDismiss} />
           ))}
+          {!expanded && hasOverflow && (
+            <button onClick={() => setExpanded(true)}
+              style={{ alignSelf: "center", marginTop: 4, background: "none",
+                border: "none", cursor: "pointer", color: "#7c8fd6",
+                fontSize: 13, fontWeight: 600, padding: "8px 0" }}>
+              Show more
+            </button>
+          )}
         </div>
         </Reveal>
       )}

@@ -106,13 +106,18 @@ class SignalExtractor:
 
         turn_dynamics = self._compute_turn_dynamics(user_segs, other_segs)
         questions = self._compute_questions(user_segs, other_segs)
+        # Room-wide (all_other_segs), not dyadic — otherwise this collapses a
+        # multi-party meeting to one arbitrary "other" (CLAUDE.md forbids this).
+        # Computed before drive_vs_follow so its interruption_asymmetry input
+        # can reuse this result instead of computing interruptions twice.
+        interruptions = self._compute_interruptions(user_segs, all_other_segs)
 
         signals = {
             "session_duration_s": self._get_session_duration(),
             "talk_ratio": self._compute_talk_ratio(user_segs, all_other_segs),
             "speech_rate": self._compute_speech_rate(user_segs),
             "pauses": self._compute_pauses(user_segs, other_segs),
-            "interruptions": self._compute_interruptions(user_segs, other_segs),
+            "interruptions": interruptions,
             "filler_words": self._compute_filler_words(user_segs),
             "turn_dynamics": turn_dynamics,
             "pitch_features": self._compute_pitch_features(user_segs),
@@ -120,6 +125,7 @@ class SignalExtractor:
             "vocal_energy": self._compute_vocal_energy(user_segs),
             "speech_acceleration": self._compute_speech_acceleration(user_segs),
             "questions": questions,
+            "curiosity": self._compute_curiosity(user_segs, all_other_segs),
             "monologue": self._compute_monologue(user_segs),
             "vocabulary_richness": self._compute_vocabulary_richness(user_segs),
             "silence_ratio": self._compute_silence_ratio(user_segs, all_other_segs),
@@ -129,7 +135,7 @@ class SignalExtractor:
             "directness": self._compute_directness(user_segs),
             "question_impact": self._compute_question_impact(user_segs, all_other_segs),
             "drive_vs_follow": self._compute_drive_vs_follow(
-                user_segs, other_segs, all_other_segs, turn_dynamics, questions
+                user_segs, other_segs, all_other_segs, turn_dynamics, questions, interruptions
             ),
             "building_on_others": self._compute_building_on_others(user_segs, all_other_segs),
         }
@@ -229,10 +235,14 @@ class SignalExtractor:
         return sorted(turns, key=lambda x: x["start"])
 
     def _compute_interruptions(self, user_segs, other_segs) -> dict:
+        """`other_segs` should be the room-wide `all_other_segs` (not just the
+        primary dyadic partner) — otherwise this silently collapses a
+        multi-party meeting to one arbitrary "other", which CLAUDE.md forbids."""
         all_turns = self._build_all_turns(user_segs, other_segs)
 
         user_interrupts_other = 0
         other_interrupts_user = 0
+        transitions = 0
 
         for i in range(1, len(all_turns)):
             prev = all_turns[i - 1]
@@ -240,6 +250,7 @@ class SignalExtractor:
 
             if prev["speaker"] == curr["speaker"]:
                 continue
+            transitions += 1
 
             gap = curr["start"] - prev["end"]
             prev_duration = prev["end"] - prev["start"]
@@ -252,7 +263,10 @@ class SignalExtractor:
 
         return {
             "user_interrupted_other": user_interrupts_other,
-            "user_was_interrupted": other_interrupts_user
+            "user_was_interrupted": other_interrupts_user,
+            "total_transitions": transitions,
+            "user_interrupt_rate_per_10_transitions": round(user_interrupts_other / transitions * 10, 2) if transitions else None,
+            "user_was_interrupted_rate_per_10_transitions": round(other_interrupts_user / transitions * 10, 2) if transitions else None,
         }
 
     def _compute_hedging(self, user_segs) -> dict:
@@ -291,6 +305,42 @@ class SignalExtractor:
             "breakdown": marker_counts
         }
 
+    @staticmethod
+    def _is_question_turn(text: str) -> bool:
+        """A turn counts as a question if it contains '?' or a question-word
+        (English or Hindi). Shared by _compute_question_impact and
+        _compute_curiosity so both count "a question" the same way."""
+        text = text.lower()
+        return "?" in text or any(
+            re.search(r'\b' + w + r'\b', text) for w in SignalExtractor.QUESTION_WORDS
+        )
+
+    def _compute_curiosity(self, user_segs, all_other_segs) -> dict:
+        """Rate of the user's turns that are questions, per 100 words spoken —
+        a rate rather than _compute_questions' raw "?"-count, so it's comparable
+        across sessions of different length. Uses the same per-turn question
+        test as _compute_question_impact for consistency between the two."""
+        all_turns = self._build_all_turns(user_segs, all_other_segs)
+
+        user_turns = 0
+        question_turns = 0
+        for turn in all_turns:
+            if turn["speaker"] != self.user_speaker:
+                continue
+            user_turns += 1
+            if self._is_question_turn(turn["text"]):
+                question_turns += 1
+
+        total_words = sum(len(s.get("words", [])) for s in user_segs)
+        rate = round(question_turns / total_words * 100, 2) if total_words > 0 else None
+
+        return {
+            "question_turn_count": question_turns,
+            "user_turns": user_turns,
+            "total_words": total_words,
+            "question_turn_rate_per_100_words": rate,
+        }
+
     def _compute_question_impact(self, user_segs, all_other_segs) -> dict:
         """Did the room pick up the user's questions? Uses the room-wide turn
         sequence (any participant, not just the primary dyadic partner)."""
@@ -303,11 +353,7 @@ class SignalExtractor:
         for i, turn in enumerate(all_turns):
             if turn["speaker"] != self.user_speaker:
                 continue
-            text = turn["text"].lower()
-            is_question = "?" in text or any(
-                re.search(r'\b' + w + r'\b', text) for w in self.QUESTION_WORDS
-            )
-            if not is_question:
+            if not self._is_question_turn(turn["text"]):
                 continue
             total_questions += 1
 
@@ -334,11 +380,15 @@ class SignalExtractor:
             "avg_pickup_latency_s": round(float(np.mean(pickup_latencies)), 3) if pickup_latencies else None,
         }
 
-    def _compute_drive_vs_follow(self, user_segs, other_segs, all_other_segs, turn_dynamics, questions) -> dict:
-        """Composite of three already-computed signals — a single proxy (e.g. just
-        "turns not preceded by a question") is too thin on its own; this reuses the
-        same inputs dimension_scorer.py's _analyze_driver already treats as a
-        reasonable way to operationalize "who drove" in this codebase."""
+    def _compute_drive_vs_follow(self, user_segs, other_segs, all_other_segs, turn_dynamics,
+                                  questions, interruptions) -> dict:
+        """Composite of four already-computed signals — a single proxy (e.g. just
+        "turns not preceded by a question") is too thin on its own; three of these
+        inputs match dimension_scorer.py's _analyze_driver, and interruption_asymmetry
+        is added as a 4th, more direct signal of assertiveness (pure timing, not an
+        inferred proxy). Weighted equally (0.25 each) — the original 0.4/0.3/0.3
+        weights were never empirically validated, so there's no principled reason to
+        keep favoring one input now that a 4th is added."""
         all_turns = self._build_all_turns(user_segs, all_other_segs)
 
         user_turns_total = 0
@@ -366,8 +416,14 @@ class SignalExtractor:
         total_q = user_q + other_q
         question_asymmetry = round(user_q / total_q, 3) if total_q > 0 else 0.5
 
+        ui = interruptions.get("user_interrupted_other", 0)
+        uwi = interruptions.get("user_was_interrupted", 0)
+        total_i = ui + uwi
+        interruption_asymmetry = round(ui / total_i, 3) if total_i > 0 else 0.5
+
         drive_score = round(
-            0.4 * initiation_fraction + 0.3 * turn_length_asymmetry + 0.3 * question_asymmetry, 3
+            0.25 * initiation_fraction + 0.25 * turn_length_asymmetry +
+            0.25 * question_asymmetry + 0.25 * interruption_asymmetry, 3
         )
 
         return {
@@ -375,6 +431,7 @@ class SignalExtractor:
             "initiation_fraction": initiation_fraction,
             "turn_length_asymmetry": turn_length_asymmetry,
             "question_asymmetry": question_asymmetry,
+            "interruption_asymmetry": interruption_asymmetry,
         }
 
     def _compute_building_on_others(self, user_segs, all_other_segs) -> dict:
@@ -384,6 +441,8 @@ class SignalExtractor:
         all_turns = self._build_all_turns(user_segs, all_other_segs)
 
         total_user_turns = 0
+        eligible_turns = 0  # user turns immediately following an other-speaker turn —
+                            # the only turns where the lexical-overlap check can fire
         marker_matches = 0
         overlap_matches = 0
         building_on_count = 0
@@ -393,14 +452,17 @@ class SignalExtractor:
                 continue
             total_user_turns += 1
             text = turn["text"].lower()
+            prev = all_turns[i - 1] if i > 0 else None
+            is_eligible = bool(prev and prev["speaker"] != self.user_speaker)
+            if is_eligible:
+                eligible_turns += 1
 
             has_marker = any(text.startswith(m) for m in self.BUILDING_ON_MARKERS)
             if has_marker:
                 marker_matches += 1
 
             has_overlap = False
-            prev = all_turns[i - 1] if i > 0 else None
-            if prev and prev["speaker"] != self.user_speaker:
+            if is_eligible:
                 prev_words = {
                     w for w in re.findall(r"[a-z']+", prev["text"].lower())
                     if len(w) > 3 and w not in self.STOPWORDS
@@ -417,10 +479,15 @@ class SignalExtractor:
                 building_on_count += 1
 
         return {
-            "building_on_rate": round(building_on_count / total_user_turns, 3) if total_user_turns > 0 else 0,
+            # Denominator is eligible_turns (turns that could structurally show
+            # overlap), not total_user_turns — turns following your own prior
+            # turn can only ever match via has_marker, so counting them in the
+            # denominator quietly diluted the rate.
+            "building_on_rate": round(building_on_count / eligible_turns, 3) if eligible_turns > 0 else 0,
             "marker_matches": marker_matches,
             "lexical_overlap_matches": overlap_matches,
             "total_user_turns": total_user_turns,
+            "eligible_turns": eligible_turns,
             "interpretation_note": "approximate proxy — marker phrases + lexical overlap, not semantic reasoning",
         }
 
@@ -597,29 +664,38 @@ class SignalExtractor:
         """Detect long uninterrupted speaking stretches."""
         long_turns = [s for s in user_segs if (s["end"] - s["start"]) > 30]
         all_lengths = [s["end"] - s["start"] for s in user_segs]
+        total_turns = len(user_segs)
 
         return {
             "long_turn_count": len(long_turns),  # turns > 30 seconds
             "longest_turn_s": round(max(all_lengths), 1) if all_lengths else 0,
-            "avg_turn_length_s": round(float(np.mean(all_lengths)), 1) if all_lengths else 0
+            "avg_turn_length_s": round(float(np.mean(all_lengths)), 1) if all_lengths else 0,
+            "long_turn_rate": round(len(long_turns) / total_turns, 3) if total_turns > 0 else None,
         }
 
+    # First N words only \u2014 type-token ratio mechanically decreases as text gets
+    # longer (common words get reused more), which would confound a whole-session
+    # TTR with session length rather than actual vocabulary behavior. A fixed
+    # window makes every session's TTR comparable regardless of how long it ran.
+    VOCAB_WINDOW_WORDS = 150
+
     def _compute_vocabulary_richness(self, user_segs) -> dict:
-        """Type-token ratio: unique words / total words. Higher = richer vocabulary."""
+        """Type-token ratio over a fixed-size window: unique words / total words
+        in the first VOCAB_WINDOW_WORDS words spoken. Higher = richer vocabulary."""
         all_text = " ".join(s.get("text", "").lower() for s in user_segs)
         words = re.findall(r'\b[a-zA-Z\u0900-\u097F]+\b', all_text)
 
-        if len(words) < 10:
+        if len(words) < self.VOCAB_WINDOW_WORDS:
             return {"type_token_ratio": None, "unique_words": 0, "total_words": len(words)}
 
-        unique = len(set(words))
-        total = len(words)
-        ttr = round(unique / total, 3)
+        window = words[:self.VOCAB_WINDOW_WORDS]
+        unique = len(set(window))
+        ttr = round(unique / len(window), 3)
 
         return {
             "type_token_ratio": ttr,
             "unique_words": unique,
-            "total_words": total
+            "total_words": len(words),  # full-session count, kept for display \u2014 TTR itself is windowed
         }
 
     def _compute_silence_ratio(self, user_segs, other_segs) -> dict:
