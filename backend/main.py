@@ -826,6 +826,24 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
                 _sid(session_id),
             )
 
+        # TEMPORARY DEBUG — structural turn timeline only (speaker, timing, gaps —
+        # never the transcript text itself, per the privacy rule on room content).
+        # For visually verifying turn/gap structure during testing. Remove once
+        # no longer needed.
+        logger.info("[%s]    TURN TIMELINE (speaker, start-end, duration; gaps noted):", _sid(session_id))
+        _prev_end, _prev_speaker = None, None
+        for _seg in merged:
+            if _prev_end is not None:
+                _gap = _seg["start"] - _prev_end
+                if _gap > 0.1:
+                    _kind = "same speaker" if _prev_speaker == _seg["speaker"] else "speaker change"
+                    logger.info("[%s]      ... gap %.2fs (%s) ...", _sid(session_id), _gap, _kind)
+            logger.info(
+                "[%s]      %-12s %7.2fs - %7.2fs  (%.2fs)",
+                _sid(session_id), _seg["speaker"], _seg["start"], _seg["end"], _seg["end"] - _seg["start"],
+            )
+            _prev_end, _prev_speaker = _seg["end"], _seg["speaker"]
+
         _prepare_cache[session_id] = {
             "audio_path": audio_path,
             "transcript": transcript,
