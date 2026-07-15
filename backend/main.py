@@ -745,10 +745,10 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
             logger.info("[%s] ✕ Cancelled after transcription", _sid(session_id))
             return
 
-        merged = diarizer.merge_transcript_with_speakers(
+        tab_merged = diarizer.merge_transcript_with_speakers(
             transcript["segments"], diarization
         )
-        logger.info("[%s]    Merged transcript: %d segments", _sid(session_id), len(merged))
+        logger.info("[%s]    Tab-derived merged transcript: %d segments", _sid(session_id), len(tab_merged))
 
         unique_speakers = {s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"}
         logger.info("[%s] 2/2 Detecting voice (%d speakers found)...", _sid(session_id), len(unique_speakers))
@@ -761,19 +761,12 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         detected_speaker = "SPEAKER_00"
         logger.info("[%s]    User auto-assigned to SPEAKER_00 (mic is the user, by construction)", _sid(session_id))
 
-        user_merged_segs = [s for s in merged if s.get("speaker") == "SPEAKER_00"]
-        logger.info(
-            "[%s]    SPEAKER_00 segments in merged transcript: %d",
-            _sid(session_id), len(user_merged_segs),
-        )
-        if len(user_merged_segs) == 0:
-            logger.warning(
-                "[%s] WARNING: No SPEAKER_00 transcript segments found! "
-                "User's speech may not have been correctly attributed. "
-                "Analysis will run but signals may be zero/empty.",
-                _sid(session_id),
-            )
-
+        # Retrieve the mic transcript now (moved earlier than before) — it's the source of
+        # truth for the user's own speech, not a diagnostic-only side channel. Google Meet
+        # never echoes your own voice back through the tab's own audio output, so the tab
+        # recording structurally can't reliably contain it — only the OTHER participant(s).
+        # The mic recording is isolated to the user by construction, so its own segments can
+        # be used directly, with no VAD-timeline matching needed.
         mic_transcript = None
         if mic_future:
             try:
@@ -797,6 +790,41 @@ def _run_prepare_job(session_id, audio_path, user_id, filename, audio_duration_s
         mic_transcript_text = " ".join(
             seg["text"] for seg in mic_transcript.get("segments", [])
         ).strip() if mic_transcript else None
+
+        # Other-speaker segments from the tab-derived merge — this part already works
+        # correctly (tab audio faithfully captures everyone else), so it's kept as-is.
+        other_speaker_segs = [s for s in tab_merged if s.get("speaker") != "SPEAKER_00"]
+        tab_derived_user_segs = [s for s in tab_merged if s.get("speaker") == "SPEAKER_00"]
+
+        mic_user_segs = []
+        if mic_transcript:
+            mic_user_segs = [
+                {**seg, "speaker": "SPEAKER_00"} for seg in mic_transcript.get("segments", [])
+            ]
+
+        if mic_user_segs:
+            user_segs_source = "mic"
+            user_merged_segs = mic_user_segs
+        else:
+            # Graceful fallback — mic transcription unavailable/failed/empty. Degrade to the
+            # old tab-VAD-attributed behavior rather than losing the user's data entirely.
+            user_segs_source = "tab (fallback — mic unavailable)"
+            user_merged_segs = tab_derived_user_segs
+
+        merged = sorted(other_speaker_segs + user_merged_segs, key=lambda s: s["start"])
+
+        logger.info(
+            "[%s]    User segments: %d from %s (tab-derived alternative would have given %d)",
+            _sid(session_id), len(user_merged_segs), user_segs_source, len(tab_derived_user_segs),
+        )
+        logger.info("[%s]    Merged transcript: %d segments", _sid(session_id), len(merged))
+        if len(user_merged_segs) == 0:
+            logger.warning(
+                "[%s] WARNING: No user transcript segments found (mic or tab)! "
+                "User's speech may not have been correctly attributed. "
+                "Analysis will run but signals may be zero/empty.",
+                _sid(session_id),
+            )
 
         _prepare_cache[session_id] = {
             "audio_path": audio_path,
