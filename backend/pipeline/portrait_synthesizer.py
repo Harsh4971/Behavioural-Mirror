@@ -176,3 +176,161 @@ Output valid JSON only — no markdown, no code fences, no extra text:
             }
         except Exception:
             return {"signals": [], "context_shifts": [], "how_it_may_land": []}
+
+    def synthesize_paragraph(self, evidence: dict, previous_paragraph: str, session_count: int) -> dict:
+        """Standing narrative paragraph + short tag chips for the You page.
+        Self-referential (unlike synthesize() above) — includes the previous
+        paragraph's own text when one exists, so the LLM revises rather than
+        rewrites from scratch on every refresh. Tags are generated in this
+        same call rather than separately, so they never contradict a
+        paragraph built from different evidence. Gated the same way as the
+        rest of the portrait: needs at least one steady overall signal.
+        """
+        overall = evidence.get("overall", {})
+        steady_overall = {k: v for k, v in overall.items() if v.get("is_steady")}
+        if not steady_overall:
+            return {"text": None, "tags": []}
+
+        signal_lines = []
+        for signal_key, ev in steady_overall.items():
+            label = SIGNAL_EVIDENCE_CONFIG[signal_key]["label"]
+            is_categorical = SIGNAL_EVIDENCE_CONFIG[signal_key]["kind"] == "categorical"
+            value = ev["mode_label"] if is_categorical else ev["mean"]
+            signal_lines.append(
+                f"  {label} ({signal_key}): established at {_format_mean(signal_key, value)}, "
+                f"based on {ev['sample_count']} sessions"
+            )
+
+        previous_section = (
+            f"\nYour previously-written paragraph (revise it, don't ignore it — keep continuity "
+            f"of voice, but genuinely update anything the new evidence below changes; don't just "
+            f"reword the same sentence):\n\"{previous_paragraph}\"\n"
+            if previous_paragraph else ""
+        )
+
+        prompt = f"""You are writing the standing narrative paragraph for the "You" page of a
+communication-coaching app. This person has recorded {session_count} conversations. Below are
+ONLY the signals with enough accumulated evidence to describe as an established tendency.
+{previous_section}
+ESTABLISHED SIGNALS (self-relative — this person's own average, never compared to other people):
+{chr(10).join(signal_lines)}
+
+TASK 1 — Write a short (2-4 sentence) narrative paragraph that weaves together several of these
+established signals into one coherent read of how this person tends to communicate — connective
+tissue between signals, not a list of individual facts (those already exist elsewhere on the
+page). Self-relative language only ("you tend to..."), never personality-trait labels
+("confident", "a natural leader") — describe behavior, not character.
+
+TASK 2 — Pick the 3-4 MOST DISTINCTIVE of the signals above (not necessarily all of them) and
+phrase each as a short (2-4 word) verb-first behavioral chip — punchy and specific, but strictly
+about action/behavior, never an identity label. Good: "Holds ground", "Questions first", "Rarely
+interrupts". Forbidden: "Confident", "Direct", "Curious" (identity/trait words, not behavior).
+
+Rules:
+- NEVER invent a number, score, or grade. Only use the numbers given above.
+- NEVER use personality-trait labels anywhere in either output.
+- It's fine to have fewer than 4 tags if fewer signals are truly distinctive — don't pad.
+
+Output valid JSON only — no markdown, no code fences, no extra text:
+{{
+  "text": "2-4 sentence paragraph",
+  "tags": ["short tag", "short tag", ...]
+}}"""
+
+        response = self.client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=600,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return self._parse_paragraph(extract_text(response))
+
+    def _parse_paragraph(self, raw: str) -> dict:
+        try:
+            clean = raw.strip()
+            if "```" in clean:
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            parsed = json.loads(clean.strip())
+            return {"text": parsed.get("text"), "tags": parsed.get("tags", [])}
+        except Exception:
+            return {"text": None, "tags": []}
+
+    def synthesize_coaching(self, grouped_suggestions: dict, session_count: int) -> dict:
+        """"Where You Might Grow" — distills recurring coaching_suggestions
+        (already grouped by dimension_key and pre-filtered to >=2 recurrences
+        by the caller) into a small standing set. Different input class from
+        synthesize()/synthesize_paragraph() above — raw per-session text
+        grounded in specific transcript moments, not evidence-gated numeric
+        means — kept as a separate call rather than folded in, so this call's
+        input never mixes with the evidence-only discipline of the others.
+        """
+        if not grouped_suggestions:
+            return {"items": []}
+
+        group_blocks = []
+        for dimension_key, instances in grouped_suggestions.items():
+            label = SIGNAL_EVIDENCE_CONFIG.get(dimension_key, {}).get("label", dimension_key)
+            instance_lines = "\n".join(
+                f"    - issue: {inst['issue']}\n      suggestion: {inst['suggestion']}\n      why_it_matters: {inst['why_it_matters']}"
+                for inst in instances
+            )
+            group_blocks.append(
+                f"DIMENSION: {label} ({dimension_key}) — appeared in {len(instances)} separate sessions\n{instance_lines}"
+            )
+
+        prompt = f"""You are writing the "Where You Might Grow" section for a communication-coaching
+app's standing "You" page. This person has recorded {session_count} conversations. Below are
+growth-area coaching suggestions that recurred across MULTIPLE separate sessions — each block is
+one theme that came up more than once, with the specific instance it was noted in each time.
+
+{chr(10).join(f"{chr(10)}{block}" for block in group_blocks)}
+
+TASK: For each dimension block, write ONE distilled entry describing the STANDING pattern across
+these instances — not a repeat of any single instance, the recurring theme itself. Self-relative,
+gentle, possibility-framed language only ("this may be worth noticing"), never a verdict.
+
+Rules:
+- Ground the "pattern" in what's actually common across the instances, don't invent anything new.
+- "suggestion" should be one concrete, actionable thing to try — not vague ("communicate better").
+- NEVER use personality-trait labels — describe the behavior, not the person's character.
+
+Output valid JSON only — no markdown, no code fences, no extra text:
+{{
+  "items": [
+    {{"dimension_key": "<the dimension_key from above>", "pattern": "the recurring theme, one sentence", "suggestion": "one concrete thing to try", "why_it_matters": "one sentence"}}
+  ]
+}}"""
+
+        response = self.client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=1200,
+            thinking={"type": "disabled"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return self._parse_coaching(extract_text(response), grouped_suggestions)
+
+    def _parse_coaching(self, raw: str, grouped_suggestions: dict) -> dict:
+        try:
+            clean = raw.strip()
+            if "```" in clean:
+                clean = clean.split("```")[1]
+                if clean.startswith("json"):
+                    clean = clean[4:]
+            parsed = json.loads(clean.strip())
+            items = []
+            for item in parsed.get("items", []):
+                dimension_key = item.get("dimension_key")
+                if dimension_key not in grouped_suggestions:
+                    continue
+                items.append({
+                    "dimension_key": dimension_key,
+                    "pattern": item.get("pattern"),
+                    "suggestion": item.get("suggestion"),
+                    "why_it_matters": item.get("why_it_matters"),
+                    "recurrence_count": len(grouped_suggestions[dimension_key]),
+                })
+            return {"items": items}
+        except Exception:
+            return {"items": []}

@@ -317,6 +317,7 @@ RULES:
 7. Don't flag signals that are within normal range for this context type
 8. Specific beats vague: "you dominated the conversation" is not an observation. "When they raised X, you pivoted immediately to Y without acknowledging their point" is.
 9. Output valid JSON only — no markdown, no code fences
+10. Each coaching_suggestion's "dimension_key" must be exactly one of: {", ".join(SIGNAL_EVIDENCE_CONFIG.keys())}, general — pick whichever this specific suggestion is actually about (e.g. a suggestion about pausing before responding to pushback is "response_latency", not "general"); only use "general" when it genuinely doesn't map to any single one of these
 
 Output this exact JSON:
 {{
@@ -344,6 +345,7 @@ Output this exact JSON:
     {{
       "priority": 1,
       "area": "area name",
+      "dimension_key": "one of the dimension keys listed in rule 10 (or 'general')",
       "issue": "What specifically happened in this conversation — quote or reference the moment.",
       "suggestion": "Exactly what to do differently next time.",
       "why_it_matters": "Why this matters in this type of conversation."
@@ -351,6 +353,7 @@ Output this exact JSON:
     {{
       "priority": 2,
       "area": "different area",
+      "dimension_key": "one of the dimension keys listed in rule 10 (or 'general')",
       "issue": "Second specific issue from this conversation.",
       "suggestion": "Second actionable suggestion.",
       "why_it_matters": "Why it matters."
@@ -358,6 +361,7 @@ Output this exact JSON:
     {{
       "priority": 3,
       "area": "third area",
+      "dimension_key": "one of the dimension keys listed in rule 10 (or 'general')",
       "issue": "Third issue.",
       "suggestion": "Third suggestion.",
       "why_it_matters": "Why it matters."

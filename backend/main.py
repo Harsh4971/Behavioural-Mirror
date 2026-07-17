@@ -130,8 +130,14 @@ portrait_synth = PortraitSynthesizer(api_key=os.getenv("ANTHROPIC_API_KEY"))
 anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 print("[startup] All models loaded. Server ready.")
 
-# In-memory caches — cleared on server restart, Supabase is the durable layer
-_portrait_cache: dict = {}      # key = "{user_id}:{session_count}:v{version}"
+# In-memory caches — cleared on server restart, Supabase is the durable layer.
+# All three keyed by user_id alone (not session_count) — none of these
+# regenerate every session anymore, they check their own stored
+# session_count_at_synthesis against a refresh interval instead. Each value is
+# a (payload, session_count_at_synthesis) tuple.
+_portrait_cache: dict = {}      # signals + context_shifts (_get_or_synthesize_portrait)
+_paragraph_cache: dict = {}     # portrait paragraph + tags (_get_or_refresh_portrait_paragraph)
+_coaching_cache: dict = {}      # coaching synthesis (_get_or_synthesize_coaching)
 
 
 _CONTEXT_BLIND_SPOTS: dict = {
@@ -232,7 +238,14 @@ def _compute_profile_evidence(parsed: list) -> dict:
             result[signal_key] = ev
         return result
 
-    overall = _evidence_for(parsed, compute_shift=False)
+    # compute_shift=True here (unlike its original by-context-only use) feeds
+    # Shape's established-vs-recent overlay on the You page — a quiet visual
+    # glance, not a worded claim, and not an input to trigger_detector.py's
+    # actual drift detection (which stays correctly by-context). Accepting
+    # the same context-clustering imprecision _evidence_for's own comment
+    # warns about below is a deliberate, lower-stakes tradeoff for this
+    # specific consumer, not an oversight of that comment.
+    overall = _evidence_for(parsed, compute_shift=True)
 
     ctx_map: dict = _dd(list)
     for p in parsed:
@@ -262,18 +275,28 @@ def _compute_sub_signal_evidence(parsed: list) -> dict:
     return result
 
 
+_PORTRAIT_REFRESH_INTERVAL = 3  # sessions between refreshes — shared cadence for
+# the signals/context-shift synthesis below, the portrait paragraph+tags, and
+# coaching synthesis. Was: regenerated every single session (cache key included
+# session_count, guaranteeing a miss each time) — recadenced so Reflected Back /
+# How You Shift By Context stop rewriting on every session and stay in sync with
+# the paragraph instead of visibly lagging behind it.
+
+
 def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict,
                                 blind_spots: list, parsed: list) -> dict:
     """Evidence-based replacement for the old dimension-scoring personality
     synthesis (retired). Reuses the user_profiles.personality_json /
     session_count_at_synthesis columns (repurposed, different shape — no schema
-    change needed) since nothing else writes to them anymore.
+    change needed) since nothing else writes to them anymore. Cached in memory
+    by user_id alone (not session_count) since it no longer regenerates every
+    session — recency is checked inside the function against the stored
+    session_count_at_synthesis instead of via a session-count-keyed cache miss.
     """
-    _PORTRAIT_VERSION = 1  # bump when the portrait prompt/shape changes
-    cache_key = f"{user_id}:{session_count}:v{_PORTRAIT_VERSION}"
-
-    if cache_key in _portrait_cache:
-        return _portrait_cache[cache_key]
+    if user_id in _portrait_cache:
+        cached_portrait, cached_session_count = _portrait_cache[user_id]
+        if session_count - cached_session_count < _PORTRAIT_REFRESH_INTERVAL:
+            return cached_portrait
 
     try:
         result = supabase_admin.table("user_profiles") \
@@ -282,21 +305,23 @@ def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict
         if result.data:
             row = result.data[0]
             raw_pj = row.get("personality_json")
-            if raw_pj and row.get("session_count_at_synthesis") == session_count * _PORTRAIT_VERSION:
+            stored_session_count = row.get("session_count_at_synthesis")
+            if raw_pj and stored_session_count is not None \
+                    and session_count - stored_session_count < _PORTRAIT_REFRESH_INTERVAL:
                 portrait = json.loads(raw_pj)
-                _portrait_cache[cache_key] = portrait
+                _portrait_cache[user_id] = (portrait, stored_session_count)
                 return portrait
     except Exception:
         pass
 
     sub_evidence = _compute_sub_signal_evidence(parsed)
     portrait = portrait_synth.synthesize(evidence, blind_spots, session_count, sub_evidence)
-    _portrait_cache[cache_key] = portrait
+    _portrait_cache[user_id] = (portrait, session_count)
 
     try:
         supabase_admin.table("user_profiles").upsert({
             "user_id": user_id,
-            "session_count_at_synthesis": session_count * _PORTRAIT_VERSION,
+            "session_count_at_synthesis": session_count,
             "personality_json": json.dumps(portrait),
             "updated_at": _utcnow(),
         }).execute()
@@ -304,6 +329,137 @@ def _get_or_synthesize_portrait(user_id: str, session_count: int, evidence: dict
         pass
 
     return portrait
+
+
+def _get_or_refresh_portrait_paragraph(user_id: str, session_count: int, evidence: dict) -> dict:
+    """Standing narrative paragraph + tag chips (You page, page position #2).
+    Same refresh-interval cadence as _get_or_synthesize_portrait above, but a
+    separate cache/column since it's a self-referential call (needs its own
+    previous output as input) and gated independently. session_count_at_synthesis
+    is stored INSIDE portrait_paragraph_json itself rather than as a second DB
+    column, since user_profiles already has a column by that name used by the
+    signals/context-shift portrait above.
+    """
+    if user_id in _paragraph_cache:
+        cached_result, cached_session_count = _paragraph_cache[user_id]
+        if session_count - cached_session_count < _PORTRAIT_REFRESH_INTERVAL:
+            return cached_result
+
+    previous_text = None
+    try:
+        result = supabase_admin.table("user_profiles") \
+            .select("portrait_paragraph_json") \
+            .eq("user_id", user_id).execute()
+        if result.data:
+            raw = result.data[0].get("portrait_paragraph_json")
+            if raw:
+                stored = json.loads(raw)
+                previous_text = stored.get("text")
+                stored_session_count = stored.get("session_count_at_synthesis")
+                if stored_session_count is not None \
+                        and session_count - stored_session_count < _PORTRAIT_REFRESH_INTERVAL:
+                    cached_payload = {"text": stored.get("text"), "tags": stored.get("tags", [])}
+                    _paragraph_cache[user_id] = (cached_payload, stored_session_count)
+                    return cached_payload
+    except Exception:
+        pass
+
+    synthesized = portrait_synth.synthesize_paragraph(evidence, previous_text, session_count)
+    _paragraph_cache[user_id] = (synthesized, session_count)
+
+    if synthesized.get("text"):
+        try:
+            supabase_admin.table("user_profiles").upsert({
+                "user_id": user_id,
+                "portrait_paragraph_json": json.dumps({
+                    "text": synthesized["text"],
+                    "tags": synthesized.get("tags", []),
+                    "session_count_at_synthesis": session_count,
+                }),
+                "updated_at": _utcnow(),
+            }).execute()
+        except Exception:
+            pass
+
+    return synthesized
+
+
+_COACHING_MIN_SESSIONS = 3     # matches the app's lowest sample floor elsewhere
+_COACHING_MIN_RECURRENCE = 2   # a single session's advice isn't a pattern yet
+
+
+def _group_coaching_suggestions(parsed: list) -> dict:
+    """Groups every session's coaching_suggestions by dimension_key, keeping
+    only groups that recurred in >=_COACHING_MIN_RECURRENCE separate sessions.
+    Sessions predating the dimension_key schema addition are silently excluded
+    from grouping (no key to group by) — not an error, just not yet eligible.
+    """
+    from collections import defaultdict as _dd
+    grouped: dict = _dd(list)
+    for p in parsed:
+        suggestions = (p.get("ins") or {}).get("coaching_suggestions", [])
+        for s in suggestions:
+            dimension_key = s.get("dimension_key")
+            if not dimension_key:
+                continue
+            grouped[dimension_key].append({
+                "issue": s.get("issue", ""),
+                "suggestion": s.get("suggestion", ""),
+                "why_it_matters": s.get("why_it_matters", ""),
+            })
+    return {k: v for k, v in grouped.items() if len(v) >= _COACHING_MIN_RECURRENCE}
+
+
+def _get_or_synthesize_coaching(user_id: str, session_count: int, parsed: list) -> dict:
+    """Where You Might Grow (You page, page position #7). Gated at
+    >=_COACHING_MIN_SESSIONS and requires at least one dimension recurring in
+    >=_COACHING_MIN_RECURRENCE sessions' coaching_suggestions. Same
+    session_count_at_synthesis-embedded-in-JSON pattern as the paragraph
+    above, own cache/column since it's a genuinely separate LLM call (raw
+    per-session text, not evidence-gated numeric means).
+    """
+    if session_count < _COACHING_MIN_SESSIONS:
+        return {"items": []}
+
+    if user_id in _coaching_cache:
+        cached_result, cached_session_count = _coaching_cache[user_id]
+        if session_count - cached_session_count < _PORTRAIT_REFRESH_INTERVAL:
+            return cached_result
+
+    try:
+        result = supabase_admin.table("user_profiles") \
+            .select("coaching_synthesis_json") \
+            .eq("user_id", user_id).execute()
+        if result.data:
+            raw = result.data[0].get("coaching_synthesis_json")
+            if raw:
+                stored = json.loads(raw)
+                stored_session_count = stored.get("session_count_at_synthesis")
+                if stored_session_count is not None \
+                        and session_count - stored_session_count < _PORTRAIT_REFRESH_INTERVAL:
+                    cached_payload = {"items": stored.get("items", [])}
+                    _coaching_cache[user_id] = (cached_payload, stored_session_count)
+                    return cached_payload
+    except Exception:
+        pass
+
+    grouped = _group_coaching_suggestions(parsed)
+    synthesized = portrait_synth.synthesize_coaching(grouped, session_count)
+    _coaching_cache[user_id] = (synthesized, session_count)
+
+    try:
+        supabase_admin.table("user_profiles").upsert({
+            "user_id": user_id,
+            "coaching_synthesis_json": json.dumps({
+                "items": synthesized.get("items", []),
+                "session_count_at_synthesis": session_count,
+            }),
+            "updated_at": _utcnow(),
+        }).execute()
+    except Exception:
+        pass
+
+    return synthesized
 
 
 # ── Auth ──────────────────────────────────────────────────────────
@@ -1151,10 +1307,12 @@ def _run_finalize_job(session_id, confirmed_speaker):
             os.remove(audio_path)
         del _prepare_cache[session_id]
 
-        # Evict profile caches so the next GET /api/profile regenerates with the new session
-        for key in list(_portrait_cache.keys()):
-            if key.startswith(f"{user_id}:"):
-                del _portrait_cache[key]
+        # Evict profile caches so the next GET /api/profile re-checks freshness
+        # against the new session count (each cache's own refresh-interval
+        # logic decides whether that actually triggers a new LLM call or not).
+        _portrait_cache.pop(user_id, None)
+        _paragraph_cache.pop(user_id, None)
+        _coaching_cache.pop(user_id, None)
 
         logger.info("[%s] ✓ Finalize complete — confirmed_speaker: %s", _sid(session_id), confirmed_speaker)
         result_data = {
@@ -1375,6 +1533,11 @@ def get_trends(user_id: str = Depends(get_current_user)):
                 "question_pickup_rate": sig.get("question_impact", {}).get("pickup_rate"),
                 "drive_score": sig.get("drive_vs_follow", {}).get("drive_score"),
                 "building_on_rate": sig.get("building_on_others", {}).get("building_on_rate"),
+                # Added for Signal History's curated 7-signal set — previously
+                # computed nowhere in this endpoint despite both being tracked
+                # dimensions since the 9→15 rebuild.
+                "curiosity_rate": sig.get("curiosity", {}).get("question_turn_rate_per_100_words"),
+                "turn_taking_rate": sig.get("interruptions", {}).get("user_interrupt_rate_per_10_transitions"),
                 "dimensions": {},
             }
             for dim, dim_data in dims.items():
@@ -1503,12 +1666,35 @@ def get_profile(user_id: str = Depends(get_current_user)):
     elif strength_pct < 90: strength_label = "Established"
     else:                   strength_label = "Deep mirror"
 
+    # Global indicators strip — plain observational facts about the user's own
+    # history, deliberately NOT evidence-gated (rule #3 doesn't apply to raw
+    # averages/counts, only to pattern claims) — visible from session 1, no
+    # gating, recomputed fresh every request same as blind_spots.
+    total_time_recorded_s = sum(p["sig"].get("session_duration_s", 0) or 0 for p in parsed)
+    talk_ratios = [p["sig"]["talk_ratio"]["user_ratio"] for p in parsed if p["sig"].get("talk_ratio")]
+    paces = [p["sig"]["speech_rate"]["overall_wpm"] for p in parsed if p["sig"].get("speech_rate")]
+    indicators = {
+        "session_count": n,
+        "time_recorded_s": round(total_time_recorded_s, 1),
+        "avg_talk_share": round(float(np.mean(talk_ratios)), 3) if talk_ratios else None,
+        "avg_pace": round(float(np.mean(paces)), 1) if paces else None,
+        "contexts_covered": len(recorded_contexts),
+        "contexts_total": len(_CONTEXT_BLIND_SPOTS),  # 9 possible conversation-type contexts
+    }
+
+    portrait_paragraph = _get_or_refresh_portrait_paragraph(user_id, n, evidence)
+    coaching = _get_or_synthesize_coaching(user_id, n, parsed)
+
     return {
         "insufficient_data": False,
         "session_count": n,
         "profile_strength": {"pct": strength_pct, "label": strength_label},
+        "indicators": indicators,
+        "portrait_paragraph": portrait_paragraph.get("text"),
+        "portrait_tags": portrait_paragraph.get("tags", []),
         "portrait": {"steady": steady_signals, "still_forming": still_forming},
         "how_you_shift_by_context": how_you_shift_by_context,
+        "coaching": coaching.get("items", []),
         "blind_spots": blind_spots,
     }
 
@@ -1575,9 +1761,9 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found.")
 
     # Evict all cached profile data for this user — session count has changed
-    for key in list(_portrait_cache.keys()):
-        if key.startswith(f"{user_id}:"):
-            del _portrait_cache[key]
+    _portrait_cache.pop(user_id, None)
+    _paragraph_cache.pop(user_id, None)
+    _coaching_cache.pop(user_id, None)
 
     return {"status": "deleted"}
 

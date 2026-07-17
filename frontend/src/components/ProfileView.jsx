@@ -21,21 +21,33 @@ const CONTEXT_LABELS = {
   first_date: "Deep Personal",
 }
 
-// Mirrors backend/pipeline/portrait_synthesizer.py's _SIGNAL_FORMAT — how to
-// render each signal's raw established mean as supporting evidence text.
+// Mirrors backend/pipeline/portrait_synthesizer.py's _SIGNAL_FORMAT exactly —
+// kept as a literal mirror (same scale/fmt/unit per key) rather than a fresh
+// guess, since two independently hand-maintained copies drifting apart is
+// exactly what caused this map to go stale after the 9→15 dimension rebuild.
+// pacing_arc/energy_arc intentionally absent — categorical, see formatMean.
 const SIGNAL_FORMAT = {
-  talk_ratio:          { scale: 100, digits: 0, unit: "% of speaking time" },
-  questions:           { scale: 1,   digits: 1, unit: " questions per session" },
-  speech_rate:         { scale: 1,   digits: 0, unit: " wpm" },
-  response_latency:    { scale: 1,   digits: 1, unit: "s response latency" },
-  hedging:             { scale: 1,   digits: 1, unit: " hedges per 100 words" },
-  directness:          { scale: 1,   digits: 1, unit: " direct phrases per 100 words" },
-  question_impact:     { scale: 100, digits: 0, unit: "% of your questions picked up" },
-  drive_vs_follow:     { scale: 100, digits: 0, unit: "% drive score" },
-  building_on_others:  { scale: 100, digits: 0, unit: "% of turns build on others" },
+  talk_ratio:                 { scale: 100, digits: 0, unit: "% of speaking time" },
+  curiosity:                  { scale: 1,   digits: 2, unit: " question-turns per 100 words" },
+  turn_taking_assertiveness:  { scale: 1,   digits: 1, unit: " interruptions per 10 speaker changes" },
+  conversational_drive:       { scale: 100, digits: 0, unit: "% drive score" },
+  hedging:                    { scale: 1,   digits: 1, unit: " hedging phrases per 100 words" },
+  directness:                 { scale: 1,   digits: 1, unit: " direct/assertive phrases per 100 words" },
+  building_on_others:         { scale: 100, digits: 0, unit: "% of your turns build on someone else's point" },
+  pace:                       { scale: 1,   digits: 0, unit: " words per minute" },
+  vocal_expressiveness:       { scale: 1,   digits: 1, unit: " Hz of pitch variation" },
+  turn_length:                { scale: 1,   digits: 1, unit: "s per turn on average" },
+  vocabulary_richness:        { scale: 100, digits: 0, unit: "% unique words in a typical stretch of speech" },
+  fillers:                    { scale: 1,   digits: 2, unit: " filler words per 100 words" },
+  response_latency:           { scale: 1,   digits: 1, unit: "s before responding" },
 }
 
-function formatMean(signalKey, mean) {
+const CATEGORICAL_SIGNAL_KEYS = new Set(["pacing_arc", "energy_arc"])
+
+function formatMean(signalKey, mean, modeLabel) {
+  if (CATEGORICAL_SIGNAL_KEYS.has(signalKey)) {
+    return modeLabel ? `consistently ${modeLabel}` : ""
+  }
   const f = SIGNAL_FORMAT[signalKey]
   if (!f || mean == null) return ""
   return `${(mean * f.scale).toFixed(f.digits)}${f.unit}`
@@ -43,36 +55,71 @@ function formatMean(signalKey, mean) {
 
 // Practical chart-scaling ranges only — NOT a comparative score. Each signal's
 // natural range is mapped to 0-100 purely so the spectrum chart has something
-// sensible to plot; nothing here is shown to the user as a number.
+// sensible to plot; nothing here is shown to the user as a number. Categorical
+// signals (pacing_arc, energy_arc) use CATEGORICAL_SPECTRUM_POSITIONS instead.
 const SPECTRUM_RANGES = {
-  talk_ratio:          [0, 1],
-  questions:           [0, 10],
-  speech_rate:         [80, 220],
-  response_latency:    [0, 5],
-  hedging:             [0, 10],
-  directness:          [0, 10],
-  question_impact:     [0, 1],
-  drive_vs_follow:     [0, 1],
-  building_on_others:  [0, 1],
+  talk_ratio:                 [0, 1],
+  curiosity:                  [0, 10],
+  turn_taking_assertiveness:  [0, 5],
+  conversational_drive:       [0, 1],
+  hedging:                    [0, 10],
+  directness:                 [0, 10],
+  building_on_others:         [0, 1],
+  pace:                       [80, 220],
+  vocal_expressiveness:       [10, 80],
+  turn_length:                [3, 45],
+  vocabulary_richness:        [0.3, 0.8],
+  fillers:                    [0, 8],
+  response_latency:           [0, 5],
 }
 
-function spectrumPosition(signalKey, mean) {
+// Fixed positions for categorical dimensions — same "chart-scaling only, not a
+// comparative score" spirit as SPECTRUM_RANGES, just for a mode label instead
+// of a numeric mean. "stable" sits at the visual center, the two directional
+// extremes split toward either side.
+const CATEGORICAL_SPECTRUM_POSITIONS = {
+  pacing_arc: { decelerating: 25, stable: 50, accelerating: 75 },
+  energy_arc: { decreasing: 25, stable: 50, increasing: 75 },
+}
+
+function spectrumPosition(signalKey, mean, modeLabel) {
+  if (CATEGORICAL_SIGNAL_KEYS.has(signalKey)) {
+    const positions = CATEGORICAL_SPECTRUM_POSITIONS[signalKey]
+    return positions?.[modeLabel] ?? 0
+  }
   const [lo, hi] = SPECTRUM_RANGES[signalKey] || [0, 1]
   if (mean == null) return 0
   const pct = ((mean - lo) / (hi - lo)) * 100
   return Math.max(4, Math.min(100, pct))
 }
 
-// New 9-signal trend chart options (replaces the old dimension/filler-era list).
+// Small per-signal identity color — used as accent dots on Reflected Back /
+// How You Shift By Context cards, and to tint Shape's axis labels. Alongside,
+// not replacing, the existing framing-color left-border on steady cards.
+const SIGNAL_COLORS = {
+  talk_ratio: "#818cf8", curiosity: "#34d399", pace: "#5b9cf6", response_latency: "#f59e0b",
+  hedging: "#a78bfa", directness: "#f472b6", conversational_drive: "#fb7185",
+  building_on_others: "#2dd4bf", turn_taking_assertiveness: "#22d3ee", pacing_arc: "#38bdf8",
+  vocal_expressiveness: "#e879f9", energy_arc: "#f97316", turn_length: "#94a3b8",
+  vocabulary_richness: "#c084fc", fillers: "#71717a",
+}
+
+// Curated to 7 — deliberately not all 15 tracked dimensions ("we can just
+// best 5-7 trends which are really worthy to earn that place"). Selection
+// follows CLAUDE.md's own priority order (relational lead, one delivery
+// slot) — pacing_arc/energy_arc excluded structurally (categorical, can't
+// plot on a line chart); building_on_others/vocabulary_richness/
+// vocal_expressiveness/turn_length/response_latency/fillers excluded per
+// weaknesses already on record elsewhere in this project (weakest proxy,
+// framing risk, audio noise, noisier delivery signals, "never the headline").
 const SIGNAL_OPTIONS = [
-  { key: "talk_ratio",           label: "Talk-share",             unit: "%" },
-  { key: "hedging_rate",         label: "Hedging",                unit: "/100w" },
-  { key: "directness_rate",      label: "Directness",             unit: "/100w" },
-  { key: "question_pickup_rate", label: "Question follow-through", unit: "%" },
-  { key: "drive_score",          label: "Conversational drive",   unit: "%" },
-  { key: "building_on_rate",     label: "Building on others",     unit: "%" },
-  { key: "wpm",                  label: "Pace",                   unit: "wpm" },
-  { key: "response_latency",     label: "Pauses",                 unit: "s" },
+  { key: "talk_ratio",       label: "Talk-share",               unit: "%" },
+  { key: "curiosity_rate",   label: "Curiosity",                unit: "/100w" },
+  { key: "hedging_rate",     label: "Hedging",                  unit: "/100w" },
+  { key: "directness_rate",  label: "Directness",               unit: "/100w" },
+  { key: "drive_score",      label: "Conversational drive",     unit: "%" },
+  { key: "wpm",              label: "Pace",                     unit: "wpm" },
+  { key: "turn_taking_rate", label: "Turn-taking assertiveness", unit: "/10" },
 ]
 
 const FRAMING_CONFIG = {
@@ -103,13 +150,32 @@ function SectionLabel({ children }) {
 // CLAUDE.md's "fingerprint spectrums", not a graded score. Only steady signals
 // get a plotted point; not-yet-steady axes are omitted rather than faked.
 
+// Custom PolarAngleAxis tick — tints each axis label with that signal's
+// identity color from SIGNAL_COLORS, ties Shape into the same color language
+// as Reflected Back / Context-Shift cards without a meaningless multi-color
+// fill region (a radar's fill only makes sense as one series).
+function ColoredAxisTick({ x, y, payload, colorBySubject }) {
+  const color = colorBySubject[payload.value] || "#8b89aa"
+  return (
+    <text x={x} y={y} textAnchor="middle" fontSize={11} fill={color}>
+      {payload.value}
+    </text>
+  )
+}
+
 function SpectrumChart({ steady }) {
   if (!steady?.length) return null
 
   const radarData = steady.map(s => ({
     subject: s.label,
-    value: spectrumPosition(s.signal_key, s.mean),
+    value: spectrumPosition(s.signal_key, s.mean, s.mode_label),
+    recent: s.recent_mean != null
+      ? spectrumPosition(s.signal_key, s.recent_mean, s.mode_label)
+      : null,
   }))
+  const colorBySubject = Object.fromEntries(
+    steady.map(s => [s.label, SIGNAL_COLORS[s.signal_key] || "#8b89aa"])
+  )
 
   return (
     <div style={{
@@ -120,10 +186,38 @@ function SpectrumChart({ steady }) {
       <ResponsiveContainer width="100%" height={260}>
         <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="66%">
           <PolarGrid stroke="#1e2438" />
-          <PolarAngleAxis dataKey="subject" tick={{ fill: "#8b89aa", fontSize: 11 }} />
-          <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-          <Radar dataKey="value"
+          <PolarAngleAxis dataKey="subject"
+            tick={<ColoredAxisTick colorBySubject={colorBySubject} />} />
+          {/* niceTicks="none" is load-bearing, not decorative: Recharts 3.x's
+              default niceTicks="auto" can silently EXTEND even a fixed [0,100]
+              domain (combineAxisDomainWithNiceTicks takes Math.max(domainMax,
+              lastNiceTickValue)) — without this, a value of exactly 100 was
+              rendering at ~55% of the outer radius instead of 100%, discovered
+              via a Playwright pixel-position check, not visible from the code
+              alone. Confirmed via recharts/es6/state/selectors/axisSelectors.js. */}
+          {/* type="number" / niceTicks="none" / allowDataOverflow / explicit
+              radiusAxisId matching are all real, best-practice hardening for
+              a fixed 0-100 domain (verified: Recharts' default niceTicks
+              can silently expand a fixed domain — see combineAxisDomainWithNiceTicks
+              in recharts/es6/state/selectors/axisSelectors.js). Flagging
+              honestly: even with all of these, a Playwright pixel-measurement
+              check found the *absolute* size of the plotted polygon is still
+              compressed relative to the grid's outer ring in this Recharts
+              version (3.8.1) — confirmed via tick-label ground truth, not
+              speculation. The distortion is uniform across all axes in a
+              single render (verified: every axis in a 4-signal test showed
+              the identical ratio), so relative shape/proportions — the
+              actual information this chart carries, per its own "no numbers,
+              just shape" design — are NOT corrupted, only the polygon's
+              absolute size within the frame looks smaller than intended.
+              Root cause not fully isolated after substantial investigation;
+              worth a follow-up pass, not blocking this build. */}
+          <PolarRadiusAxis radiusAxisId={0} type="number" domain={[0, 100]} niceTicks="none" allowDataOverflow tick={false} axisLine={false} />
+          <Radar radiusAxisId={0} dataKey="value" name="Established"
             stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.18} strokeWidth={2.5} />
+          <Radar radiusAxisId={0} dataKey="recent" name="Recently"
+            stroke="#f0eeff" fill="none" strokeWidth={1.75} strokeDasharray="4 3"
+            connectNulls={false} />
         </RadarChart>
       </ResponsiveContainer>
     </div>
@@ -134,7 +228,8 @@ function SpectrumChart({ steady }) {
 
 function SteadySignalCard({ item, i }) {
   const cfg = FRAMING_CONFIG[item.framing] || FRAMING_CONFIG.observation
-  const evidence = formatMean(item.signal_key, item.mean)
+  const dotColor = SIGNAL_COLORS[item.signal_key] || "#8b89aa"
+  const evidence = formatMean(item.signal_key, item.mean, item.mode_label)
   return (
     <RevealItem index={i}>
     <div style={{
@@ -143,8 +238,11 @@ function SteadySignalCard({ item, i }) {
       borderLeft: `3px solid ${cfg.color}`,
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>
-          {item.label}
+        <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>
+            {item.label}
+          </span>
         </span>
         <span style={{ fontSize: 11, color: cfg.color, fontWeight: 600,
           background: `${cfg.color}15`, border: `1px solid ${cfg.color}30`,
@@ -191,14 +289,19 @@ function StillFormingRow({ item }) {
 // ── How you shift by context ───────────────────────────────────────
 
 function ContextShiftCard({ item, i }) {
+  const dotColor = SIGNAL_COLORS[item.signal_key] || "#8b89aa"
+  const isCategorical = CATEGORICAL_SIGNAL_KEYS.has(item.signal_key)
   return (
     <RevealItem index={i}>
     <div style={{
       padding: "14px 16px", borderRadius: 10,
       background: "#151922", border: "1px solid #1e2438",
     }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff", marginBottom: 8 }}>
-        {item.label}
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff" }}>
+          {item.label}
+        </span>
       </div>
       {item.note && (
         <p style={{ margin: "0 0 10px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
@@ -206,12 +309,17 @@ function ContextShiftCard({ item, i }) {
         </p>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {Object.entries(item.by_context).map(([ctx, mean]) => (
+        {/* by_context values are a raw mean (continuous signals) or the mode
+            label itself (categorical signals) — matches main.py's value_field
+            selection in get_profile(). */}
+        {Object.entries(item.by_context).map(([ctx, value]) => (
           <span key={ctx} style={{
             fontSize: 11, color: "#8b89aa", background: "#0e1320",
             border: "1px solid #1e2438", borderRadius: 20, padding: "4px 12px",
           }}>
-            {CONTEXT_LABELS[ctx] || ctx}: {formatMean(item.signal_key, mean)}
+            {CONTEXT_LABELS[ctx] || ctx}: {isCategorical
+              ? formatMean(item.signal_key, null, value)
+              : formatMean(item.signal_key, value)}
           </span>
         ))}
       </div>
@@ -288,6 +396,122 @@ function SignalTrends({ chartData }) {
   )
 }
 
+// ── Portrait paragraph + tags ────────────────────────────────────────
+// Narrative connective tissue between several established signals, plus a
+// handful of short behavior-phrase chips — deliberately kept even though it
+// overlaps with the itemized cards below, for the visual/skimmable value.
+// Absent entirely (not a placeholder) until >=1 signal is steady.
+
+function PortraitParagraph({ text, tags }) {
+  if (!text) return null
+  return (
+    <div>
+      <p style={{
+        margin: tags?.length ? "0 0 10px" : 0, fontSize: 14, color: "#c4c2d8",
+        lineHeight: 1.75, fontStyle: "italic",
+      }}>
+        "{text}"
+      </p>
+      {tags?.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {tags.map((tag, i) => (
+            <span key={i} style={{
+              fontSize: 11.5, fontWeight: 600, color: "#a5b4fc",
+              background: "rgba(129,140,248,0.10)", border: "1px solid rgba(129,140,248,0.22)",
+              borderRadius: 20, padding: "4px 11px", whiteSpace: "nowrap",
+            }}>
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Global indicators strip ──────────────────────────────────────────
+// Plain observational facts about the user's own history (not evidence-gated
+// patterns) — visible from session 1. Option B styling: stat tiles with a
+// colored left-border accent, reusing HomeView's existing card language.
+
+function formatDuration(totalSeconds) {
+  if (!totalSeconds) return "0m"
+  const h = Math.floor(totalSeconds / 3600)
+  const m = Math.round((totalSeconds % 3600) / 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function StatTile({ value, label, accent }) {
+  return (
+    <div style={{
+      background: "#151922", border: "1px solid #1e2438",
+      borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: "11px 12px",
+    }}>
+      <div style={{ fontSize: 19, fontWeight: 700, color: "#f0eeff",
+        fontVariantNumeric: "tabular-nums", letterSpacing: "-0.3px", lineHeight: 1.15 }}>
+        {value}
+      </div>
+      <div style={{ marginTop: 3, fontSize: 10.5, color: "#6b6888" }}>
+        {label}
+      </div>
+    </div>
+  )
+}
+
+function IndicatorsStrip({ indicators }) {
+  if (!indicators) return null
+  const tiles = [
+    { value: indicators.session_count, label: "Sessions", accent: "#5b9cf6" },
+    { value: formatDuration(indicators.time_recorded_s), label: "Recorded", accent: "#34d399" },
+    indicators.avg_talk_share != null && {
+      value: `${Math.round(indicators.avg_talk_share * 100)}%`, label: "Avg talk-share", accent: "#818cf8",
+    },
+    indicators.avg_pace != null && {
+      value: Math.round(indicators.avg_pace), label: "Avg WPM", accent: "#f59e0b",
+    },
+    { value: `${indicators.contexts_covered} / ${indicators.contexts_total}`, label: "Contexts", accent: "#22d3ee" },
+  ].filter(Boolean)
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 8 }}>
+      {tiles.map((t, i) => <StatTile key={i} {...t} />)}
+    </div>
+  )
+}
+
+// ── Where you might grow — coaching synthesis ────────────────────────
+// Distilled recurring themes from coaching_suggestions, grouped by
+// dimension_key server-side — a concrete-instance complement to Reflected
+// Back's aggregate framing, not a restatement of it.
+
+function CoachingCard({ item, i }) {
+  const dotColor = SIGNAL_COLORS[item.dimension_key] || "#8b89aa"
+  return (
+    <RevealItem index={i}>
+    <div style={{
+      padding: "14px 16px", borderRadius: 10,
+      background: "#151922", border: "1px solid #1e2438",
+      borderLeft: `3px solid ${dotColor}`,
+    }}>
+      {item.pattern && (
+        <p style={{ margin: "0 0 8px", fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
+          {item.pattern}
+        </p>
+      )}
+      {item.suggestion && (
+        <p style={{ margin: "0 0 8px", fontSize: 12.5, color: "#a5a3c2", lineHeight: 1.6 }}>
+          <span style={{ fontWeight: 600, color: "#c4c2d8" }}>Try: </span>
+          {item.suggestion}
+        </p>
+      )}
+      <p style={{ margin: 0, fontSize: 11, color: "#4a4865" }}>
+        Came up in {item.recurrence_count} of your recent sessions
+      </p>
+    </div>
+    </RevealItem>
+  )
+}
+
 // ── Main ProfileView ("You" page) ──────────────────────────────────
 
 export default function ProfileView({ active }) {
@@ -347,8 +571,8 @@ export default function ProfileView({ active }) {
     )
   }
 
-  const { session_count, profile_strength, portrait, how_you_shift_by_context,
-          blind_spots } = profile
+  const { profile_strength, portrait, how_you_shift_by_context,
+          blind_spots, indicators, portrait_paragraph, portrait_tags, coaching } = profile
 
   const steady = portrait?.steady || []
   const stillForming = portrait?.still_forming || []
@@ -370,13 +594,12 @@ export default function ProfileView({ active }) {
             You
           </h2>
 
+          {/* Header is confidence-only now — how much the app knows about you.
+              Facts about you (session count, etc.) live in the indicators
+              strip below instead. */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-            <span style={{ fontSize: 12, color: "#4a4865" }}>
-              {session_count} session{session_count > 1 ? "s" : ""}
-            </span>
             {profile_strength?.label && (
               <>
-                <span style={{ color: "#1e2438", fontSize: 12 }}>·</span>
                 <span style={{ fontSize: 12, color: "#4a4865" }}>{profile_strength.label}</span>
                 <div style={{ width: 60, height: 3, background: "#1e2438",
                   borderRadius: 2, overflow: "hidden" }}>
@@ -420,6 +643,18 @@ export default function ProfileView({ active }) {
       </div>
       </Reveal>
 
+      {/* Portrait paragraph + tags — absent until >=1 signal is steady */}
+      {portrait_paragraph && (
+        <Reveal delay={40}>
+          <PortraitParagraph text={portrait_paragraph} tags={portrait_tags} />
+        </Reveal>
+      )}
+
+      {/* Global indicators strip — plain facts, visible from session 1 */}
+      <Reveal delay={60}>
+        <IndicatorsStrip indicators={indicators} />
+      </Reveal>
+
       {/* Spectrum — fingerprint shape across your established signals */}
       {steady.length > 0 && (
         <Reveal delay={80}>
@@ -443,7 +678,7 @@ export default function ProfileView({ active }) {
           <div style={{ marginBottom: 12 }}>
             <SectionLabel>Established</SectionLabel>
             <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-              What We've Noticed
+              Reflected Back
             </h2>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -468,6 +703,28 @@ export default function ProfileView({ active }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {how_you_shift_by_context.map((item, i) => (
               <ContextShiftCard key={item.signal_key} item={item} i={i} />
+            ))}
+          </div>
+        </div>
+        </Reveal>
+      )}
+
+      {/* Where you might grow — coaching synthesis, deliberately after the
+          descriptive sections above rather than near the top: observe first,
+          reflect on growth after. Absent until >=3 sessions and >=1 recurring
+          theme — not a repeat of a single session's own coaching card. */}
+      {coaching?.length > 0 && (
+        <Reveal delay={100}>
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <SectionLabel>Growth</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
+              Where You Might Grow
+            </h2>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {coaching.map((item, i) => (
+              <CoachingCard key={item.dimension_key} item={item} i={i} />
             ))}
           </div>
         </div>
