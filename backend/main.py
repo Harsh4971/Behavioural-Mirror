@@ -1845,11 +1845,7 @@ async def submit_feedback(
             label = category_labels.get(payload.category, payload.category)
 
             resend.Emails.send({
-                # Resend's shared sandbox sender — works immediately with any
-                # valid API key, no DNS/domain verification needed. Switch to
-                # feedback@mirrorai.live once that domain is verified in
-                # Resend's dashboard (Domains -> Add Domain) for a nicer from-address.
-                "from": "Mirror Feedback <onboarding@resend.dev>",
+                "from": "Mirror Feedback <feedback@mirrorai.live>",
                 "to": ["harsh200415@gmail.com"],
                 "subject": f"Mirror Feedback — {label}",
                 "html": f"""
