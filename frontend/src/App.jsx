@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react"
 import { supabase } from "./lib/supabase"
 import api from "./lib/api"
-import { LogoLockup } from "./components/Logo"
 import AuthView from "./components/AuthView"
 import OnboardingView from "./components/OnboardingView"
 import ResultsView from "./components/ResultsView"
@@ -150,7 +149,29 @@ export default function App() {
       {/* Header */}
       <div style={{ marginBottom: 28, display: "flex",
         justifyContent: "space-between", alignItems: "flex-start" }}>
-        <LogoLockup markSize={26} fontSize={22} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="hdr-g" x1="0" y1="0" x2="32" y2="0" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#1d4ed8"/><stop offset="1" stopColor="#0891b2"/>
+              </linearGradient>
+            </defs>
+            <rect x="2"  y="12" width="4" height="4"  rx="2" fill="url(#hdr-g)" opacity=".4"/>
+            <rect x="8"  y="8"  width="4" height="8"  rx="2" fill="url(#hdr-g)" opacity=".65"/>
+            <rect x="14" y="4"  width="4" height="12" rx="2" fill="url(#hdr-g)"/>
+            <rect x="20" y="8"  width="4" height="8"  rx="2" fill="url(#hdr-g)" opacity=".65"/>
+            <rect x="26" y="12" width="4" height="4"  rx="2" fill="url(#hdr-g)" opacity=".4"/>
+            <line x1="0" y1="17.5" x2="32" y2="17.5" stroke="#1e2438" strokeWidth="1"/>
+            <rect x="2"  y="18" width="4" height="4"  rx="2" fill="url(#hdr-g)" opacity=".18"/>
+            <rect x="8"  y="18" width="4" height="8"  rx="2" fill="url(#hdr-g)" opacity=".3"/>
+            <rect x="14" y="18" width="4" height="12" rx="2" fill="url(#hdr-g)" opacity=".38"/>
+            <rect x="20" y="18" width="4" height="8"  rx="2" fill="url(#hdr-g)" opacity=".3"/>
+            <rect x="26" y="18" width="4" height="4"  rx="2" fill="url(#hdr-g)" opacity=".18"/>
+          </svg>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.3px", color: "#f0eeff" }}>
+            mirror<span style={{ color: "#1d4ed8" }}>.</span>
+          </h1>
+        </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {/* Open as full page — only in side panel */}

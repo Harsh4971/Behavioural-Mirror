@@ -6,7 +6,6 @@ import {
 } from "recharts"
 import api from "../lib/api"
 import Reveal, { RevealItem } from "./Reveal"
-import { DomeMark } from "./Logo"
 
 const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
@@ -543,7 +542,24 @@ export default function ProfileView({ active }) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-          <DomeMark size={52} />
+          <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+            <defs>
+              <linearGradient id="pv-empty-g" x1="0" y1="0" x2="52" y2="0" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#1d4ed8"/><stop offset="1" stopColor="#0891b2"/>
+              </linearGradient>
+            </defs>
+            <rect x="2"  y="20" width="6"  height="6"  rx="3" fill="url(#pv-empty-g)" opacity=".35"/>
+            <rect x="11" y="13" width="6"  height="13" rx="3" fill="url(#pv-empty-g)" opacity=".6"/>
+            <rect x="20" y="6"  width="8"  height="20" rx="4" fill="url(#pv-empty-g)"/>
+            <rect x="31" y="13" width="6"  height="13" rx="3" fill="url(#pv-empty-g)" opacity=".6"/>
+            <rect x="40" y="20" width="6"  height="6"  rx="3" fill="url(#pv-empty-g)" opacity=".35"/>
+            <line x1="0" y1="28" x2="52" y2="28" stroke="#1e2438" strokeWidth="1.25"/>
+            <rect x="2"  y="29" width="6"  height="6"  rx="3" fill="url(#pv-empty-g)" opacity=".15"/>
+            <rect x="11" y="29" width="6"  height="13" rx="3" fill="url(#pv-empty-g)" opacity=".27"/>
+            <rect x="20" y="29" width="8"  height="20" rx="4" fill="url(#pv-empty-g)" opacity=".33"/>
+            <rect x="31" y="29" width="6"  height="13" rx="3" fill="url(#pv-empty-g)" opacity=".27"/>
+            <rect x="40" y="29" width="6"  height="6"  rx="3" fill="url(#pv-empty-g)" opacity=".15"/>
+          </svg>
         </div>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px", color: "#f0eeff" }}>
           Your mirror is waiting
