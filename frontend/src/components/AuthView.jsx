@@ -3,10 +3,11 @@ import { supabase } from "../lib/supabase"
 
 const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
-export default function AuthView({ onAuth }) {
-  const [mode, setMode] = useState("login")
+export default function AuthView({ onAuth, initialMode = "login" }) {
+  const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [message, setMessage] = useState("")
@@ -30,8 +31,19 @@ export default function AuthView({ onAuth }) {
     setError("")
     setMessage("")
     try {
-      if (mode === "reset") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email)
+      if (mode === "update-password") {
+        if (password !== confirmPassword) throw new Error("Passwords don't match.")
+        const { error } = await supabase.auth.updateUser({ password })
+        if (error) throw error
+        onAuth()
+      } else if (mode === "reset") {
+        // No hosted web copy of the app exists (mirrorai.live is a landing
+        // page only) — the reset link has to redirect into the extension's
+        // own fullpage view, which is what actually runs the React app.
+        const redirectTo = typeof chrome !== "undefined" && chrome.runtime?.id
+          ? chrome.runtime.getURL("index.html") + "?fullpage=1"
+          : window.location.origin
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
         if (error) throw error
         setMessage("Password reset link sent — check your email.")
         setMode("login")
@@ -153,9 +165,10 @@ export default function AuthView({ onAuth }) {
             mirror<span style={{ color: "#1d4ed8" }}>.</span>
           </h1>
           <p style={{ color: "#4a4865", fontSize: 13, margin: 0 }}>
-            {mode === "login"
-              ? "Sign in to access your sessions."
-              : "Create an account to get started."}
+            {mode === "login" && "Sign in to access your sessions."}
+            {mode === "signup" && "Create an account to get started."}
+            {mode === "reset" && "Enter your email to get a reset link."}
+            {mode === "update-password" && "Choose a new password for your account."}
           </p>
         </div>
 
@@ -168,17 +181,21 @@ export default function AuthView({ onAuth }) {
         }}>
 
           <form onSubmit={handleSubmit}>
+            {mode !== "update-password" && (
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 500,
                 marginBottom: 6, color: "#8b89aa" }}>Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)}
                 required style={{ width: "100%", padding: "10px 12px", fontSize: 14 }} />
             </div>
+            )}
 
             {mode === "reset" ? null : (
-            <div style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: mode === "update-password" ? 16 : 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ fontSize: 13, fontWeight: 500, color: "#8b89aa" }}>Password</label>
+                <label style={{ fontSize: 13, fontWeight: 500, color: "#8b89aa" }}>
+                  {mode === "update-password" ? "New password" : "Password"}
+                </label>
                 {mode === "login" && (
                   <button type="button"
                     onClick={() => { setMode("reset"); setError(""); setMessage("") }}
@@ -217,6 +234,19 @@ export default function AuthView({ onAuth }) {
             </div>
             )}
 
+            {mode === "update-password" && (
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 500,
+                marginBottom: 6, color: "#8b89aa" }}>Confirm new password</label>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                required minLength={6}
+                style={{ width: "100%", padding: "10px 12px", fontSize: 14 }}
+              />
+            </div>
+            )}
+
             {error && (
               <div style={{ background: "rgba(248,113,113,0.08)",
                 border: "1px solid rgba(248,113,113,0.25)",
@@ -244,10 +274,12 @@ export default function AuthView({ onAuth }) {
                 borderRadius: 8, fontSize: 15,
                 cursor: loading ? "not-allowed" : "pointer", fontWeight: 600,
                 boxShadow: loading ? "none" : "0 0 24px rgba(29,78,216,0.3)" }}>
-              {loading ? "…" : mode === "login" ? "Sign in" : mode === "reset" ? "Send reset link" : "Create account"}
+              {loading ? "…" : mode === "login" ? "Sign in" : mode === "reset" ? "Send reset link" : mode === "update-password" ? "Update password" : "Create account"}
             </button>
           </form>
 
+          {mode !== "update-password" && (
+          <>
           {/* Divider */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }}>
             <div style={{ flex: 1, height: 1, background: "#1e2438" }} />
@@ -274,7 +306,10 @@ export default function AuthView({ onAuth }) {
             </svg>
             Continue with Google
           </button>
+          </>
+          )}
 
+          {mode !== "update-password" && (
           <div style={{ textAlign: "center", marginTop: 20 }}>
             <button
               onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); setMessage("") }}
@@ -287,6 +322,7 @@ export default function AuthView({ onAuth }) {
                 : "Already have an account? Sign in"}
             </button>
           </div>
+          )}
         </div>
       </div>
     </div>

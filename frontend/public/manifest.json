@@ -26,6 +26,12 @@
     "https://dqxajifqeegeisgqnjqs.supabase.co/*",
     "https://meet.google.com/*"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["index.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "background": {
     "service_worker": "background.js"
   },

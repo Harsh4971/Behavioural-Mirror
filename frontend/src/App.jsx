@@ -21,6 +21,7 @@ function openFullPage() {
 export default function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [onboardingDone, setOnboardingDone] = useState(
     () => !!localStorage.getItem("bm_onboarding_v1")
   )
@@ -70,6 +71,7 @@ export default function App() {
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
+      if (_event === "PASSWORD_RECOVERY") setPasswordRecovery(true)
       if (!session) {
         setConfirmDelete(false)
         setShowAccountMenu(false)
@@ -119,6 +121,13 @@ export default function App() {
   )
 
   if (!session) return <AuthView onAuth={setSession} />
+
+  // A followed password-reset email link signs the user into a temporary
+  // recovery session — intercept before the normal app/onboarding so they
+  // set a new password first, rather than landing straight in the app.
+  if (passwordRecovery) return (
+    <AuthView initialMode="update-password" onAuth={() => setPasswordRecovery(false)} />
+  )
 
   if (!onboardingDone) return (
     <OnboardingView onDone={() => setOnboardingDone(true)} />
