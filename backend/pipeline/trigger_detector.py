@@ -177,6 +177,46 @@ def _value_str(dimension_key: str, value) -> str:
         return f"{value}"
 
 
+def _range_str(dimension_key: str, mean: float, cv: float) -> str:
+    """The actual mean±std band behind a continuous signal's steady value —
+    e.g. "between 155 and 185" for a pace whose mean is 170 and cv is ~0.09.
+    No unit repeated here — curr_str right before it already states the unit
+    once. Grounded in data already computed to decide steadiness — not a new
+    measurement."""
+    try:
+        from pipeline.portrait_synthesizer import _SIGNAL_FORMAT
+        scale, fmt, _unit = _SIGNAL_FORMAT[dimension_key]
+        std = cv * abs(mean)
+        low, high = fmt.format((mean - std) * scale), fmt.format((mean + std) * scale)
+        return f"typically between {low} and {high}"
+    except (ImportError, KeyError):
+        return ""
+
+
+def _agreement_str(current: dict) -> str:
+    """How many of the recent sessions actually showed this — e.g. "8 of
+    your last 10 sessions" for a categorical trend's agreement_ratio, which
+    is already computed to decide steadiness, just never surfaced before."""
+    window_n = min(current["sample_count"], 10)  # matches evidence_gate.py's ROLLING_WINDOW
+    agreement_ratio = current.get("agreement_ratio")
+    if agreement_ratio is None or window_n == 0:
+        return ""
+    agree_count = round(agreement_ratio * window_n)
+    return f"showing up in {agree_count} of your last {window_n} sessions"
+
+
+def _extra_clause(dimension_key: str, current: dict, is_categorical: bool) -> str:
+    """The one added fact — a real range for continuous signals, a real
+    session count for categorical ones — never an interpretation of what it
+    means, just more of what was already measured."""
+    if is_categorical:
+        extra = _agreement_str(current)
+    else:
+        extra = (_range_str(dimension_key, current["mean"], current["cv"])
+                 if current.get("cv") is not None else "")
+    return f" ({extra})" if extra else ""
+
+
 def _phrase_event(dimension_key, label, trigger_type, direction, prior, current, cfg, scope) -> dict:
     """Deterministic string templates, no LLM call — matches home_feed.py's
     existing f-string convention (e.g. the old build_progress_cards)."""
@@ -184,23 +224,24 @@ def _phrase_event(dimension_key, label, trigger_type, direction, prior, current,
     n = current["sample_count"]
     scope_phrase = "" if scope == "overall" else f" in your {scope.replace('_', ' ')} conversations"
     curr_str = current["mode_label"] if is_categorical else _value_str(dimension_key, current["mean"])
+    extra = _extra_clause(dimension_key, current, is_categorical)
 
     if trigger_type == "first_time_steady":
         note = (f"Over your last {n} sessions, your {label} has settled into a steady "
-                 f"pattern — {curr_str}.")
+                 f"pattern — {curr_str}{extra}.")
     elif trigger_type == "context_shift":
         note = (f"Your {label} has also settled into a steady pattern specifically"
-                 f"{scope_phrase} — {curr_str}.")
+                 f"{scope_phrase} — {curr_str}{extra}.")
     elif trigger_type == "recurring" and direction == "back_to_usual":
         note = (f"Your {label} had been varying more than usual for a bit, but it's "
-                 f"settled back to your usual {curr_str}.")
+                 f"settled back to your usual {curr_str}{extra}.")
     elif trigger_type == "recurring":  # direction == "drift"
         note = (f"After a stretch of inconsistency, your {label} has settled into a new "
-                 f"pattern — {curr_str}.")
+                 f"pattern — {curr_str}{extra}.")
     elif trigger_type == "drift":
         prev_str = (prior.get("last_steady_mode_label") if is_categorical
                     else _value_str(dimension_key, prior.get("last_steady_mean")))
-        note = f"Your {label} has shifted — from {prev_str} to {curr_str} over your last {n} sessions."
+        note = f"Your {label} has shifted — from {prev_str} to {curr_str}{extra} over your last {n} sessions."
     else:
         note = f"Your {label} showed a new pattern this session."
 
