@@ -121,6 +121,44 @@ SIGNAL_EVIDENCE_CONFIG = {
     },
 }
 
+# Composite-only inputs: exist purely to feed COMPOSITE_CONFIG below, never shown
+# as their own card and never counted in profile_strength_pct or the You-page
+# still-forming list — unlike SUB_SIGNAL_EVIDENCE_CONFIG, these have no "parent"
+# dimension of their own to fold into.
+COMPOSITE_INPUT_CONFIG = {
+    "pause_rate": {
+        "kind": "continuous",
+        "min_samples": 5,
+        "cv_threshold": 0.35,
+        "extract": lambda sig: (
+            round(sig["pauses"]["within_turn_pauses"]["count"] / sig["curiosity"]["total_words"] * 100, 2)
+            if sig["curiosity"]["total_words"] > 0 else None
+        ),
+        "label": "within-turn pause rate",
+    },
+    "energy_variability": {
+        "kind": "continuous",
+        "min_samples": 4,
+        "cv_threshold": 0.30,
+        "extract": lambda sig: sig["vocal_energy"].get("variability"),
+        "label": "vocal energy variability",
+    },
+    "pace_variability": {
+        "kind": "continuous",
+        "min_samples": 4,
+        "cv_threshold": 0.30,
+        "extract": lambda sig: sig["speech_rate"].get("variability"),
+        "label": "pace variability",
+    },
+    "crosstalk": {
+        "kind": "continuous",
+        "min_samples": 5,
+        "cv_threshold": 0.50,
+        "extract": lambda sig: sig["crosstalk"]["crosstalk_ratio"],
+        "label": "crosstalk",
+    },
+}
+
 # Sub-signals: fold into a parent dimension's card as a bonus note rather than
 # getting their own dimension slot. Own evidence tracking (looser thresholds —
 # each depends more on the other person's behavior than the user's own), but
@@ -163,11 +201,13 @@ ROLLING_WINDOW = 10
 
 
 def _cfg_for(signal_key: str) -> dict:
-    """Look a key up across both the main dimension config and the sub-signal
-    config, so callers don't need to know which dict a given key lives in."""
+    """Look a key up across the dimension, sub-signal, and composite-input
+    configs, so callers don't need to know which dict a given key lives in."""
     if signal_key in SIGNAL_EVIDENCE_CONFIG:
         return SIGNAL_EVIDENCE_CONFIG[signal_key]
-    return SUB_SIGNAL_EVIDENCE_CONFIG[signal_key]
+    if signal_key in SUB_SIGNAL_EVIDENCE_CONFIG:
+        return SUB_SIGNAL_EVIDENCE_CONFIG[signal_key]
+    return COMPOSITE_INPUT_CONFIG[signal_key]
 
 
 def compute_signal_evidence(signal_key: str, historical_values: list, config: dict = None) -> dict:
@@ -177,7 +217,7 @@ def compute_signal_evidence(signal_key: str, historical_values: list, config: di
     Pure function over already-extracted values — doesn't fetch data itself,
     so it's independently testable regardless of where the values came from.
     """
-    cfg = (config or SIGNAL_EVIDENCE_CONFIG).get(signal_key) or SUB_SIGNAL_EVIDENCE_CONFIG.get(signal_key)
+    cfg = config.get(signal_key) if config else _cfg_for(signal_key)
     # Some signals (e.g. question_pickup) legitimately have no value for a session
     # (zero questions asked) — None, not a fake 0, so drop it rather than let it
     # pollute the mean/cv or crash np.mean.
@@ -212,7 +252,7 @@ def compute_categorical_evidence(signal_key: str, historical_labels: list, confi
     for why (a magnitude-based cv is unstable for signals whose natural mean
     sits near zero, e.g. pacing/energy arcs for people with no strong drift).
     """
-    cfg = (config or SIGNAL_EVIDENCE_CONFIG).get(signal_key) or SUB_SIGNAL_EVIDENCE_CONFIG.get(signal_key)
+    cfg = config.get(signal_key) if config else _cfg_for(signal_key)
     labels = [v for v in historical_labels if v and v != "insufficient_data"]
     n = len(labels)
     result = {
@@ -250,3 +290,143 @@ def extract_value(signal_key: str, signals: dict):
     stored in sessions.signals_json). Checks both the main dimension config and
     the sub-signal config."""
     return _cfg_for(signal_key)["extract"](signals)
+
+
+# ── Session Spectrum composites ─────────────────────────────────────────────
+# Each entry is (component_signal_key, weight, mode). `weight`'s sign encodes
+# direction (negative = this component pulls the composite down as it rises —
+# e.g. more hedging means *less* "Speech Style"). `mode` is "signed" for the
+# normal case, or "closeness" for a component where deviation in *either*
+# direction should lower the composite (Responsive Engagement's response
+# latency — replying unusually fast or unusually slow both read as less
+# engaged than replying at your own typical pace).
+COMPOSITE_CONFIG = {
+    "speech_style": {
+        "label": "Speech Style",
+        "components": [
+            ("hedging", -0.25, "signed"),
+            ("pause_rate", -0.25, "signed"),
+            ("directness", 0.25, "signed"),
+            ("pace", 0.25, "signed"),
+        ],
+    },
+    "vocal_arousal": {
+        "label": "Vocal Arousal",
+        "components": [
+            ("vocal_expressiveness", 1 / 3, "signed"),
+            ("energy_variability", 1 / 3, "signed"),
+            ("pace_variability", 1 / 3, "signed"),
+        ],
+    },
+    "rapport": {
+        "label": "Rapport",
+        "components": [
+            ("building_on_others", 0.5, "signed"),
+            ("question_pickup", 0.5, "signed"),
+        ],
+    },
+    "power_balance": {
+        "label": "Power Balance",
+        "components": [
+            ("talk_ratio", 0.5, "signed"),
+            ("conversational_drive", 0.5, "signed"),
+        ],
+    },
+    "turn_taking_courtesy": {
+        "label": "Turn-taking Courtesy",
+        "components": [
+            ("turn_taking_assertiveness", -0.5, "signed"),
+            ("crosstalk", -0.5, "signed"),
+        ],
+    },
+    "fluency": {
+        "label": "Fluency",
+        "components": [
+            ("hedging", -0.34, "signed"),
+            ("fillers", -0.33, "signed"),
+            ("vocabulary_richness", 0.33, "signed"),
+        ],
+    },
+    "responsive_engagement": {
+        "label": "Responsive Engagement",
+        "components": [
+            ("turn_taking_assertiveness", -0.4, "signed"),
+            ("building_on_others", 0.3, "signed"),
+            ("response_latency", 0.3, "closeness"),
+        ],
+    },
+}
+
+
+def compute_composite_position(composite_key: str, today_signals: dict, historical_signals_list: list) -> dict:
+    """A composite's self-relative position (less/about/more than your usual),
+    built by z-scoring each component against *its own* history first, then
+    combining — never as a new raw value computed once and evidence-gated like
+    a normal signal. That would require combining raw rates of very different
+    natural units (e.g. hedging's rate-per-100-words against pace's
+    words-per-minute) with fixed weights, which lets whichever component has
+    the largest natural magnitude silently dominate the blend regardless of
+    its intended weight. Z-scoring first puts every component on the same
+    footing — literally "how many of its own typical swings is today away
+    from this user's mean" — before the weights are applied.
+
+    `historical_signals_list` is the list of past raw `signals` dicts (oldest→
+    newest) for this user+context, same shape `_fetch_and_parse_sessions`
+    already produces — no new persisted evidence-state table needed, this is
+    computed fresh from data already being fetched for the profile/home pages.
+
+    Requires *every* component to be individually steady before the composite
+    is considered steady at all — a "Rapport" reading built from only one of
+    its two real ingredients isn't really Rapport, just one signal in a
+    costume. Stricter than any single component's own bar, deliberately.
+    """
+    cfg = COMPOSITE_CONFIG[composite_key]
+    weighted_zs = []
+    total_weight = 0.0
+    component_detail = []
+
+    for signal_key, weight, mode in cfg["components"]:
+        historical_values = [extract_value(signal_key, s) for s in historical_signals_list]
+        evidence = compute_evidence(signal_key, historical_values)
+
+        if not evidence["is_steady"]:
+            component_detail.append({"signal": signal_key, "steady": False})
+            continue
+
+        today_value = extract_value(signal_key, today_signals)
+        if today_value is None:
+            component_detail.append({"signal": signal_key, "steady": True, "usable": False})
+            continue
+
+        # A component with genuinely zero historical variance is rare but not
+        # impossible (e.g. filler rate really is 0.0 across someone's last 10
+        # sessions) — an epsilon floor avoids a literal division by zero
+        # rather than assuming real data never lands exactly here.
+        denom = max(evidence["cv"] * abs(evidence["mean"]), 1e-6)
+        z = (today_value - evidence["mean"]) / denom
+        contribution = (-abs(z) if mode == "closeness" else z) * weight
+
+        weighted_zs.append(contribution)
+        total_weight += abs(weight)
+        component_detail.append({
+            "signal": signal_key, "steady": True, "usable": True, "z": round(z, 3),
+            "today_value": today_value, "historical_mean": evidence["mean"],
+        })
+
+    n_usable = sum(1 for c in component_detail if c.get("usable"))
+    if n_usable < len(cfg["components"]):
+        return {
+            "composite": composite_key, "label": cfg["label"],
+            "is_steady": False, "position": None, "components": component_detail,
+        }
+
+    composite_z = sum(weighted_zs) / total_weight if total_weight > 0 else 0.0
+    position = "more than usual" if composite_z > 0.5 else \
+               "less than usual" if composite_z < -0.5 else \
+               "about your usual"
+
+    return {
+        "composite": composite_key, "label": cfg["label"], "is_steady": True,
+        "composite_z": round(composite_z, 3), "position": position,
+        "components": component_detail,
+    }

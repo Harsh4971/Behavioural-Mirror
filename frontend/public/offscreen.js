@@ -24,7 +24,7 @@ let chunkTimer = null;
 let playbackCtx = null; // AudioContext that routes captured audio back to speakers
 let diagnosticTimer = null; // periodic heartbeat — logs state even if no mute/unmute event ever fires
 
-const CHUNK_MS = 15 * 60 * 1000; // 15 minutes
+const CHUNK_MS = 25 * 60 * 1000; // 25 minutes
 
 // ── Diagnostics — investigating intermittent audio dropouts during recording.
 // Pure logging, no behavior change. mute/unmute fire when the browser/OS decides

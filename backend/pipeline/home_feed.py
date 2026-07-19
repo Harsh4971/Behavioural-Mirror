@@ -19,16 +19,29 @@ from pipeline.evidence_gate import SIGNAL_EVIDENCE_CONFIG
 
 
 def build_session_recap_cards(parsed: list, dismissed: set) -> list:
-    """One card per session, unconditional. Uses the FULL insight_generator
-    output (conversation_summary, observations, coaching_suggestions,
-    notable_pattern) rather than just the single top observation the old v1
-    session_observation card showed."""
+    """One card per session, unconditional. Uses insight_generator's
+    conversation_summary in full, plus exactly ONE observation (the LLM's own
+    first-ranked one) and its matched tip — the other observations/tips and
+    notable_pattern live on the full session detail page instead (View full
+    session), not duplicated here. See history_session_detail_redesign memory
+    doc for why: the old version showed all 3 observations + all 3 coaching
+    tips + notable_pattern in one card, which was too much for a feed card and
+    fully redundant with the detail page underneath it."""
     cards = []
     for p in parsed:
         card_key = f"session_recap:{p['id']}"
         if card_key in dismissed:
             continue
         ins = p.get("ins") or {}
+        observations = ins.get("observations") or []
+        top_observation = observations[0] if observations else None
+        suggestions = ins.get("coaching_suggestions") or []
+        tip = None
+        if top_observation:
+            tip = next(
+                (s["suggestion"] for s in suggestions if s.get("dimension_key") == top_observation.get("signal")),
+                None,
+            )
         cards.append({
             "type": "session_recap",
             "card_key": card_key,
@@ -36,9 +49,8 @@ def build_session_recap_cards(parsed: list, dismissed: set) -> list:
             "context": p["context"],
             "date": p["date"],
             "conversation_summary": ins.get("conversation_summary", ""),
-            "observations": ins.get("observations", []),
-            "coaching_suggestions": ins.get("coaching_suggestions", []),
-            "notable_pattern": ins.get("notable_pattern"),
+            "observation": top_observation,
+            "tip": tip,
         })
     return cards
 

@@ -32,6 +32,15 @@ export default function App() {
   const [deleting, setDeleting] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
 
+  // Home's "View full session" link only has a session_id — fetch the full
+  // signals/insights/dimensions shape ResultsView needs, same pattern as
+  // HistoryView's onSelect which already has that shape from its list call.
+  const openSession = (sessionId) => {
+    api.get(`/api/sessions/${sessionId}`)
+      .then(res => { setResults(res.data); setView("results") })
+      .catch(console.error)
+  }
+
   // Each key tracks how many times we've navigated TO that view — re-mounting
   // the wrapper div causes the .view-enter animation to fire every tab switch.
   const [viewKeys, setViewKeys] = useState({ home: 0, profile: 0, history: 0 })
@@ -309,7 +318,7 @@ export default function App() {
           so .view-enter animation fires every time you switch to that tab */}
       <div style={{ display: view === "home" ? "block" : "none" }}>
         <div key={`home-${viewKeys.home}`} className="view-enter">
-          <HomeView active={view === "home"} />
+          <HomeView active={view === "home"} onOpenSession={openSession} />
         </div>
       </div>
       <div style={{ display: view === "profile" ? "block" : "none" }}>

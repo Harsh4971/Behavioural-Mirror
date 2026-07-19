@@ -90,7 +90,7 @@ let webrtcMode = false;
 let speakerTimeline = []; // [{speaker, start, end}] accumulated from content script VAD events
 let webrtcAvailableTabId = null;
 
-const CHUNK_DURATION_S = 15 * 60; // 900 seconds per chunk
+const CHUNK_DURATION_S = 25 * 60; // 1500 seconds per chunk — must match offscreen.js's CHUNK_MS
 
 // ── Message router ────────────────────────────────────────────────
 

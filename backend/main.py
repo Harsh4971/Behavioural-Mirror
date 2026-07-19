@@ -25,10 +25,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-# Maximum speakers to extract detailed signals for per session.
-# Prevents OOM on HF Spaces when a large meeting produces many speaker labels.
-MAX_SPEAKERS_TO_ANALYZE = 4
-
 from pipeline.transcriber import Transcriber
 from pipeline.diarizer import Diarizer
 from pipeline.signal_extractor import SignalExtractor
@@ -38,7 +34,8 @@ from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.portrait_synthesizer import PortraitSynthesizer
 from pipeline.evidence_gate import (
-    SIGNAL_EVIDENCE_CONFIG, SUB_SIGNAL_EVIDENCE_CONFIG, compute_evidence, extract_value
+    SIGNAL_EVIDENCE_CONFIG, SUB_SIGNAL_EVIDENCE_CONFIG, compute_evidence, extract_value,
+    COMPOSITE_CONFIG, compute_composite_position
 )
 from pipeline import home_feed
 from pipeline.trigger_detector import run_trigger_detection
@@ -78,7 +75,7 @@ _cancelled: set = set()
 
 # Per-job watchdog timers — cancelled when job completes normally
 _job_timers: dict = {}
-_JOB_TIMEOUT_S = 15 * 60  # 15 minutes
+_JOB_TIMEOUT_S = 25 * 60  # 25 minutes — matches the 25-min recording chunk size
 
 
 def _start_job_timeout(job_key: str, cancel_id: str):
@@ -692,11 +689,11 @@ async def start_prepare_session(
     import wave
     with wave.open(audio_path, "r") as _wf:
         _duration_s = _wf.getnframes() / _wf.getframerate()
-    if _duration_s > 1200:
+    if _duration_s > 1800:
         os.remove(audio_path)
         raise HTTPException(
             status_code=400,
-            detail="Recording exceeds the 20-minute limit. Please trim and re-upload."
+            detail="Recording exceeds the 30-minute limit. Please trim and re-upload."
         )
 
     # Parse WebRTC speaker timeline if provided (skips pyannote diarization)
@@ -1151,75 +1148,24 @@ def _run_finalize_job(session_id, confirmed_speaker):
             return
 
         # ── Step 1: Signal extraction ─────────────────────────────────
+        # Only the confirmed user's own signals are ever extracted — CLAUDE.md
+        # rule #8 ("never build a profile of the room"). This used to also run
+        # full signal extraction for every other detected room participant
+        # (up to MAX_SPEAKERS_TO_ANALYZE), persisting their behavioral signals
+        # indefinitely in all_speakers_signals_json purely to power the old
+        # diarization-era "Not you?" speaker-switcher — removed along with it.
         logger.info("[%s] 1/4 Extracting behavioral signals...", _sid(session_id))
         emit("extracting", "Extracting behavioral signals…")
 
-        all_speaker_ids = list({s["speaker"] for s in diarization if s["speaker"] != "UNKNOWN"})
-        logger.info("[%s]    Diarization speakers (%d): %s", _sid(session_id), len(all_speaker_ids), all_speaker_ids)
-
-        if confirmed_speaker not in all_speaker_ids:
-            logger.warning(
-                "[%s]    WARNING: confirmed_speaker '%s' not in diarization — will extract anyway",
-                _sid(session_id), confirmed_speaker
+        try:
+            signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
+            logger.info("[%s]    ✓ Signal extraction complete", _sid(session_id))
+        except Exception as sig_err:
+            logger.error(
+                "[%s]    ✕ Signal extraction FAILED: %s\n%s",
+                _sid(session_id), sig_err, _tb.format_exc()
             )
-
-        # Cap extraction to MAX_SPEAKERS_TO_ANALYZE to prevent OOM on multi-speaker meetings.
-        # Always keep confirmed_speaker (= user) and SPEAKER_00; fill remaining slots with
-        # speakers ranked by total talk time so the most active participants are included.
-        def _speaker_talk_time(sp):
-            return sum(s["end"] - s["start"] for s in diarization if s["speaker"] == sp)
-
-        must_have = {confirmed_speaker, "SPEAKER_00"} & set(all_speaker_ids)
-        remaining = [sp for sp in all_speaker_ids if sp not in must_have]
-        remaining.sort(key=_speaker_talk_time, reverse=True)
-        speakers_to_extract = list(must_have) + remaining
-        if len(speakers_to_extract) > MAX_SPEAKERS_TO_ANALYZE:
-            dropped = speakers_to_extract[MAX_SPEAKERS_TO_ANALYZE:]
-            speakers_to_extract = speakers_to_extract[:MAX_SPEAKERS_TO_ANALYZE]
-            logger.warning(
-                "[%s]    Capping extraction at %d speakers (dropping %d to prevent OOM): %s",
-                _sid(session_id), MAX_SPEAKERS_TO_ANALYZE, len(dropped), dropped
-            )
-        else:
-            logger.info(
-                "[%s]    Will extract signals for %d speaker(s): %s",
-                _sid(session_id), len(speakers_to_extract), speakers_to_extract
-            )
-
-        all_speakers_signals = {}
-        for sp in speakers_to_extract:
-            sp_segs = [s for s in diarization if s["speaker"] == sp]
-            sp_talk = _speaker_talk_time(sp)
-            logger.info(
-                "[%s]    Extracting signals for %s (%d segments, %.1fs talk time)…",
-                _sid(session_id), sp, len(sp_segs), sp_talk
-            )
-            try:
-                all_speakers_signals[sp] = SignalExtractor(audio_path, merged, sp).extract_all()
-                logger.info("[%s]    ✓ %s extraction complete", _sid(session_id), sp)
-            except Exception as sp_err:
-                logger.error(
-                    "[%s]    ✕ Signal extraction FAILED for %s: %s\n%s",
-                    _sid(session_id), sp, sp_err, _tb.format_exc()
-                )
-                # Continue — don't let one speaker's failure abort the whole job
-
-        signals = all_speakers_signals.get(confirmed_speaker)
-        if signals is None:
-            logger.warning(
-                "[%s]    confirmed_speaker %s not in extracted signals — extracting now",
-                _sid(session_id), confirmed_speaker
-            )
-            try:
-                signals = SignalExtractor(audio_path, merged, confirmed_speaker).extract_all()
-                all_speakers_signals[confirmed_speaker] = signals
-                logger.info("[%s]    ✓ Fallback extraction for %s complete", _sid(session_id), confirmed_speaker)
-            except Exception as fb_err:
-                logger.error(
-                    "[%s]    ✕ Fallback extraction FAILED for %s: %s\n%s",
-                    _sid(session_id), confirmed_speaker, fb_err, _tb.format_exc()
-                )
-                raise
+            raise
 
         if session_id in _cancelled:
             _cancelled.discard(session_id)
@@ -1271,7 +1217,6 @@ def _run_finalize_job(session_id, confirmed_speaker):
             primary_context, filename, confirmed_speaker,
             speaker_confirmed=True,
             fingerprint=fingerprint,
-            all_speakers_signals=all_speakers_signals
         )
         logger.info("[%s]    ✓ Session saved to Supabase", _sid(session_id))
 
@@ -1323,7 +1268,6 @@ def _run_finalize_job(session_id, confirmed_speaker):
             "filename": filename,
             "detected_speaker": confirmed_speaker,
             "speaker_confirmed": True,
-            "available_speakers": all_speaker_ids,
             "voiceprint_confidence": voiceprint_confidence,
         }
 
@@ -1386,82 +1330,54 @@ async def cancel_job(session_id: str, user_id: str = Depends(get_current_user)):
     return {"status": "cancelled"}
 
 
-# ── Reanalyze ─────────────────────────────────────────────────────
+# ── Session history ───────────────────────────────────────────────
 
-@app.post("/api/sessions/{session_id}/reanalyze")
-async def reanalyze_session(
-    session_id: str,
-    confirmed_speaker: str = Form(...),
-    user_id: str = Depends(get_current_user)
-):
-    res = supabase_admin.table("sessions").select("*").eq("id", session_id).eq(
-        "user_id", user_id
-    ).execute()
+@app.get("/api/sessions/{session_id}")
+def get_session(session_id: str, user_id: str = Depends(get_current_user)):
+    """Single-session fetch, same response shape as a HistoryView list card's
+    onSelect — used by Home's "View full session" link, which only has a
+    session_id and needs the full signals/insights/dimensions to open the
+    session detail page directly."""
+    res = supabase_admin.table("sessions").select("*").eq(
+        "id", session_id
+    ).eq("user_id", user_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    session = res.data[0]
-    if not session.get("all_speakers_signals_json"):
-        raise HTTPException(
-            status_code=400,
-            detail="Re-analysis data not available for this session. Please re-upload the audio."
-        )
-
-    all_speakers_signals = json.loads(session["all_speakers_signals_json"])
-    if confirmed_speaker not in all_speakers_signals:
-        available = list(all_speakers_signals.keys())
-        raise HTTPException(
-            status_code=400,
-            detail=f"No data for speaker '{confirmed_speaker}'. Available: {available}"
-        )
-
-    signals = all_speakers_signals[confirmed_speaker]
-    primary_context = session["context"]
-    existing_insights = json.loads(session["insights_json"]) if session.get("insights_json") else {}
-    conversation_types = existing_insights.get("conversation_types", [primary_context])
-
-    print(f"[{_sid(session_id)}] ▶ Re-analyzing as {confirmed_speaker}...")
-    evidence = _get_context_evidence(user_id, primary_context)
-    session_history = _get_user_session_history(user_id)
-    resonance_calibration = _get_resonance_calibration(user_id)
-    dimensions = dimension_scorer.score_all(signals)
-
-    # Re-analysis uses existing fingerprint as transcript context if no merged_json
-    existing_fingerprint = json.loads(session["fingerprint_json"]) if session.get("fingerprint_json") else None
-    transcript_text = existing_fingerprint or ""
-
-    insights = insight_gen.generate(
-        signals, primary_context, evidence, transcript_text, dimensions,
-        session_history=session_history,
-        resonance_calibration=resonance_calibration,
-        conversation_types=conversation_types,
-    )
-
-    fingerprint = insights.pop("fingerprint", existing_fingerprint)
-
-    supabase_admin.table("sessions").update({
-        "detected_speaker": confirmed_speaker,
-        "speaker_confirmed": True,
-        "signals_json": json.dumps(signals),
-        "insights_json": json.dumps(insights),
-        "dimensions_json": json.dumps(dimensions),
-        "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
-    }).eq("id", session_id).execute()
-
-    print(f"[{_sid(session_id)}] ✓ Re-analysis done")
+    s = res.data[0]
     return {
-        "session_id": session_id,
-        "signals": signals,
-        "insights": insights,
-        "dimensions": dimensions,
-        "filename": session.get("filename") or "recording",
-        "detected_speaker": confirmed_speaker,
-        "speaker_confirmed": True,
-        "available_speakers": list(all_speakers_signals.keys()),
+        "session_id": s["id"],
+        "context": s["context"],
+        "filename": s.get("filename") or "recording",
+        "detected_speaker": s.get("detected_speaker") or "SPEAKER_00",
+        "created_at": s["created_at"],
+        "insights": json.loads(s["insights_json"]),
+        "signals": json.loads(s["signals_json"]),
+        "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
+        "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
     }
 
 
-# ── Session history ───────────────────────────────────────────────
+# Priority order for HistoryView's one-line card highlight — first steady
+# composite wins, Relational-first per CLAUDE.md's own signal priority.
+_HIGHLIGHT_PRIORITY = [
+    "rapport", "power_balance", "turn_taking_courtesy",
+    "speech_style", "fluency", "responsive_engagement", "vocal_arousal",
+]
+
+
+def _compute_session_highlight(session_id: str, session_signals: dict, context: str, all_parsed: list) -> dict | None:
+    """One self-relative one-liner for a HistoryView card — the first steady
+    composite in priority order, or None if nothing is steady yet for this
+    user+context. Deliberately just one, not all 7 — a list card is a glance,
+    not the detail page."""
+    same_context_history = [p["sig"] for p in all_parsed if p["context"] == context and p["id"] != session_id]
+    for key in _HIGHLIGHT_PRIORITY:
+        result = compute_composite_position(key, session_signals, same_context_history)
+        if result["is_steady"]:
+            return {"label": result["label"], "position": result["position"]}
+    return None
+
 
 @app.get("/api/sessions")
 def get_sessions(
@@ -1477,15 +1393,14 @@ def get_sessions(
     ).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
 
     total = res.count or 0
+    # Fetched once per request (not per-card) — same pattern /api/profile and
+    # /api/home already use for evidence computation against full history.
+    all_parsed = _fetch_and_parse_sessions(user_id)
+
     out = []
     for s in res.data:
         try:
-            all_sp = json.loads(s["all_speakers_signals_json"]) if s.get("all_speakers_signals_json") else {}
-            speakers_timeline = {}
-            for sp_id, sp_signals in all_sp.items():
-                tl = sp_signals.get("timeline")
-                if tl:
-                    speakers_timeline[sp_id] = tl
+            signals = json.loads(s["signals_json"])
             out.append({
                 "session_id": s["id"],
                 "context": s["context"],
@@ -1494,11 +1409,10 @@ def get_sessions(
                 "speaker_confirmed": s.get("speaker_confirmed") or False,
                 "created_at": s["created_at"],
                 "insights": json.loads(s["insights_json"]),
-                "signals": json.loads(s["signals_json"]),
+                "signals": signals,
                 "dimensions": json.loads(s["dimensions_json"]) if s.get("dimensions_json") else {},
-                "available_speakers": list(all_sp.keys()),
-                "speakers_timeline": speakers_timeline,
                 "fingerprint": json.loads(s["fingerprint_json"]) if s.get("fingerprint_json") else None,
+                "highlight": _compute_session_highlight(s["id"], signals, s["context"], all_parsed),
             })
         except Exception as e:
             print(f"[sessions] Skipping malformed session {s.get('id', '?')}: {e}")
@@ -1578,6 +1492,27 @@ def _fetch_and_parse_sessions(user_id: str) -> list:
         except Exception:
             continue
     return parsed
+
+
+@app.get("/api/sessions/{session_id}/spectrum")
+def get_session_spectrum(session_id: str, user_id: str = Depends(get_current_user)):
+    """Session Spectrum tab data: each of the 7 composites' self-relative
+    position (less/about/more than usual) for this one session, computed
+    against the user's own same-context history — never a number, never
+    compared to anyone else. See history_session_detail_redesign memory doc
+    for the full design (why composites are computed at read-time, not stored)."""
+    parsed = _fetch_and_parse_sessions(user_id)
+    target = next((p for p in parsed if p["id"] == session_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    same_context_history = [p["sig"] for p in parsed if p["context"] == target["context"] and p["id"] != session_id]
+
+    composites = {
+        key: compute_composite_position(key, target["sig"], same_context_history)
+        for key in COMPOSITE_CONFIG
+    }
+    return {"session_id": session_id, "context": target["context"], "composites": composites}
 
 
 @app.get("/api/profile")
@@ -2213,8 +2148,13 @@ def _sample_transcript(merged: list, max_segments: int = 60) -> str:
 def _save_session(
     session_id, user_id, signals, insights, dimensions,
     context, filename="recording", detected_speaker="SPEAKER_00",
-    speaker_confirmed=True, fingerprint=None, all_speakers_signals=None
+    speaker_confirmed=True, fingerprint=None
 ):
+    # all_speakers_signals_json is intentionally never written anymore — it used
+    # to persist full behavioral signal extractions for every other room
+    # participant (CLAUDE.md rule #8: never build a profile of the room). The
+    # column stays in the DB schema (nullable, always NULL going forward) rather
+    # than migrating it away as part of this change.
     supabase_admin.table("sessions").insert({
         "id": session_id,
         "user_id": user_id,
@@ -2226,5 +2166,4 @@ def _save_session(
         "insights_json": json.dumps(insights),
         "dimensions_json": json.dumps(dimensions),
         "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
-        "all_speakers_signals_json": json.dumps(all_speakers_signals) if all_speakers_signals else None,
     }).execute()

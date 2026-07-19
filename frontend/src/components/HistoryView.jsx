@@ -1,79 +1,6 @@
 import { useState, useEffect } from "react"
 import api from "../lib/api"
 import Reveal from "./Reveal"
-import {
-  LineChart, Line, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Legend,
-} from "recharts"
-
-// Palette for up to 6 speakers
-const SPEAKER_COLORS = ["#3b82f6", "#8b5cf6", "#34d399", "#f59e0b", "#f87171", "#0891b2"]
-
-function speakerDisplayName(id, detectedSpeaker) {
-  if (id === detectedSpeaker) return "You"
-  const num = parseInt(id.replace("SPEAKER_", ""), 10)
-  return isNaN(num) ? id : `Participant ${num}`
-}
-
-function formatMin(s) {
-  return `${Math.floor(s / 60)}m`
-}
-
-function SpeakerTimeline({ speakersTimeline, detectedSpeaker }) {
-  const speakers = Object.keys(speakersTimeline || {})
-  if (!speakers.length) return null
-
-  // Merge all per-speaker windows into a unified time axis
-  const windowMap = {}
-  for (const sp of speakers) {
-    for (const w of speakersTimeline[sp]) {
-      const key = w.window_start_s
-      if (!windowMap[key]) windowMap[key] = { t: key }
-      windowMap[key][sp] = w.speech_rate_wpm
-    }
-  }
-  const chartData = Object.values(windowMap).sort((a, b) => a.t - b.t)
-  if (chartData.length < 2) return null
-
-  return (
-    <div style={{ marginTop: 14, padding: "14px 0 4px",
-      borderTop: "1px solid #1e2438" }}>
-      <div style={{ fontSize: 11, color: "#4a4865", marginBottom: 10,
-        textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>
-        Who spoke when — speech rate (wpm)
-      </div>
-      <ResponsiveContainer width="100%" height={140}>
-        <LineChart data={chartData}>
-          <XAxis dataKey="t" tickFormatter={formatMin} fontSize={10}
-            tick={{ fill: "#4a4865" }} axisLine={{ stroke: "#1e2438" }}
-            tickLine={false} />
-          <YAxis fontSize={10} width={28}
-            tick={{ fill: "#4a4865" }} axisLine={{ stroke: "#1e2438" }}
-            tickLine={false} />
-          <Tooltip
-            contentStyle={{ background: "#151922", border: "1px solid #1e2438",
-              borderRadius: 8, fontSize: 12 }}
-            labelStyle={{ color: "#8b89aa" }}
-            itemStyle={{ color: "#f0eeff" }}
-            labelFormatter={v => `at ${formatMin(v)}`}
-            formatter={(v, name) => [`${Math.round(v)} wpm`,
-              speakerDisplayName(name, detectedSpeaker)]}
-          />
-          <Legend
-            formatter={name => speakerDisplayName(name, detectedSpeaker)}
-            wrapperStyle={{ fontSize: 11, color: "#8b89aa" }}
-          />
-          {speakers.map((sp, i) => (
-            <Line key={sp} type="monotone" dataKey={sp}
-              stroke={SPEAKER_COLORS[i % SPEAKER_COLORS.length]}
-              strokeWidth={sp === detectedSpeaker ? 2.5 : 1.5}
-              dot={false} connectNulls />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
 
 const CONTEXT_LABELS = {
   social: "Casual & Low-Stakes", collaborative: "Collaborative",
@@ -87,34 +14,8 @@ const CONTEXT_LABELS = {
   first_date: "Deep Personal",
 }
 
-const SCORE_COLORS = ["#f87171", "#fb923c", "#f59e0b", "#34d399", "#10b981"]
-
-function MiniScoreBar({ score }) {
-  if (!score || score < 1) return null
-  const color = SCORE_COLORS[score - 1] || "#4a4865"
-  return (
-    <div style={{ display: "flex", gap: 2 }}>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} style={{
-          width: 10, height: 4, borderRadius: 2,
-          background: i < score ? color : "#1e2438",
-        }} />
-      ))}
-    </div>
-  )
-}
-
 function SessionCard({ s, index, onSelect, confirmDeleteId, setConfirmDeleteId, handleDelete, deleting }) {
-  const [showTimeline, setShowTimeline] = useState(false)
-
-  const dims = s.dimensions || {}
-  const dimSummary = [
-    { label: "Emotional", score: dims.emotional_state?.confidence?.score },
-    { label: "Rapport",   score: dims.relational_dynamics?.rapport?.score },
-    { label: "Clarity",   score: dims.communication_effectiveness?.clarity?.score },
-  ].filter(d => d.score != null)
   const sessionTypes = (s.insights?.conversation_types || [s.context])
-  const hasTimeline = s.speakers_timeline && Object.keys(s.speakers_timeline).length > 0
 
   // Talk split percentages
   const dur = s.signals.session_duration_s || 1
@@ -133,9 +34,7 @@ function SessionCard({ s, index, onSelect, confirmDeleteId, setConfirmDeleteId, 
         dimensions: s.dimensions || {},
         filename: s.filename || "recording",
         detected_speaker: s.detected_speaker || "SPEAKER_00",
-        speaker_confirmed: s.speaker_confirmed || false,
         session_id: s.session_id,
-        available_speakers: s.available_speakers || [],
         fingerprint: s.fingerprint || null,
       })} style={{ cursor: "pointer" }}>
 
@@ -170,7 +69,7 @@ function SessionCard({ s, index, onSelect, confirmDeleteId, setConfirmDeleteId, 
 
         {/* Signal stats */}
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap",
-          marginBottom: dimSummary.length > 0 ? 12 : 0 }}>
+          marginBottom: s.highlight ? 12 : 0 }}>
           {[
             { label: "You",      value: `${userPct}%`  },
             { label: "Others",   value: `${otherPct}%` },
@@ -186,40 +85,21 @@ function SessionCard({ s, index, onSelect, confirmDeleteId, setConfirmDeleteId, 
           ))}
         </div>
 
-        {/* Dimension score bars */}
-        {dimSummary.length > 0 && (
-          <div style={{ display: "flex", gap: 18, paddingTop: 10,
+        {/* Self-relative highlight — one steady composite, "more/less than your
+            usual", never a number, never a grade. None shown if nothing is
+            steady yet for this user+context (honest, not padded). */}
+        {s.highlight && (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, paddingTop: 10,
             borderTop: "1px solid #1e2438" }}>
-            {dimSummary.map(({ label, score }) => (
-              <div key={label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 10, color: "#4a4865" }}>{label}</span>
-                <MiniScoreBar score={score} />
-              </div>
-            ))}
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#818cf8" }}>
+              {s.highlight.label}
+            </span>
+            <span style={{ fontSize: 12, color: "#8b89aa" }}>
+              {s.highlight.position}
+            </span>
           </div>
         )}
       </div>
-
-      {/* Speaker timeline toggle */}
-      {hasTimeline && (
-        <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1e2438" }}>
-          <button onClick={() => setShowTimeline(v => !v)}
-            style={{ background: "none", border: "none", cursor: "pointer",
-              fontSize: 11, color: "#4a4865", padding: 0, display: "flex",
-              alignItems: "center", gap: 5 }}>
-            <span style={{ display: "inline-block",
-              transform: showTimeline ? "rotate(90deg)" : "rotate(0deg)",
-              transition: "transform 0.2s" }}>▶</span>
-            {showTimeline ? "Hide" : "Show"} speaker timeline
-          </button>
-          {showTimeline && (
-            <SpeakerTimeline
-              speakersTimeline={s.speakers_timeline}
-              detectedSpeaker={s.detected_speaker || "SPEAKER_00"}
-            />
-          )}
-        </div>
-      )}
 
       {/* Delete controls */}
       <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #1e2438",
@@ -291,7 +171,9 @@ export default function HistoryView({ onSelect, active = false }) {
     }
     api.get(`/api/sessions?page=${pageNum}&page_size=${PAGE_SIZE}`)
       .then(res => {
-        const { sessions: newSessions, total: t } = res.data
+        const data = res.data
+        const newSessions = Array.isArray(data) ? data : (data.sessions ?? [])
+        const t = Array.isArray(data) ? data.length : (data.total ?? 0)
         setSessions(prev => pageNum === 0 ? newSessions : [...prev, ...newSessions])
         setTotal(t)
         setPage(pageNum)
@@ -335,7 +217,7 @@ export default function HistoryView({ onSelect, active = false }) {
       <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
       <p style={{ color: "#8b89aa", fontSize: 14 }}>No sessions yet.</p>
       <p style={{ color: "#4a4865", fontSize: 13, marginTop: 4 }}>
-        Upload your first conversation to get started.
+        Record your first meeting to get started.
       </p>
     </div>
   )
@@ -426,7 +308,7 @@ export default function HistoryView({ onSelect, active = false }) {
             border: "1px solid rgba(52,211,153,0.2)",
             borderRadius: 10, fontSize: 13, color: "#34d399" }}>
             ✨ {total} sessions recorded — your behavioral profile is active.
-            Check the Profile tab.
+            Check the You tab.
           </div>
         </Reveal>
       )}

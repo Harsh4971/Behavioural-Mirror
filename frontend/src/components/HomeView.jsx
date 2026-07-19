@@ -59,8 +59,11 @@ function CardShell({ color, title, badge, faded, onDismiss, children }) {
   )
 }
 
-function SessionRecapCard({ card, faded, onDismiss }) {
+function SessionRecapCard({ card, faded, onDismiss, onOpenSession }) {
+  const [resonance, setResonance] = useState(null)
   const dateLabel = card.date ? new Date(card.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""
+  const obs = card.observation
+
   return (
     <CardShell color="#818cf8" title="Session recap"
       badge={[card.context?.replace(/_/g, " "), dateLabel].filter(Boolean).join(" · ")}
@@ -71,39 +74,58 @@ function SessionRecapCard({ card, faded, onDismiss }) {
         </p>
       )}
 
-      {card.observations?.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: card.coaching_suggestions?.length ? 10 : 0 }}>
-          {card.observations.map((obs, i) => (
-            <div key={i}>
-              <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.6 }}>
-                {obs.observation}
-              </p>
-              {obs.resonance_prompt && (
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6b6888", fontStyle: "italic", lineHeight: 1.5 }}>
-                  💭 {obs.resonance_prompt}
-                </p>
-              )}
+      {/* Exactly one observation, backend-ranked — the other two + their tips
+          live on the full session detail page (View full session below) */}
+      {obs && (
+        <div style={{ marginBottom: card.tip ? 10 : 6 }}>
+          <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.6 }}>
+            {obs.observation}
+          </p>
+
+          {resonance === null ? (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, color: "#4a4865" }}>Does this resonate?</span>
+              {[["Yes", "yes"], ["Somewhat", "somewhat"], ["No", "no"]].map(([label, value]) => (
+                <button key={label} onClick={async () => {
+                  setResonance(label)
+                  try {
+                    const form = new FormData()
+                    form.append("signal", obs.signal)
+                    form.append("response", value)
+                    await api.post(`/api/sessions/${card.session_id}/resonance`, form)
+                  } catch {}
+                }}
+                  style={{ padding: "3px 10px", border: "1px solid #1e2438",
+                    borderRadius: 16, background: "#131827", cursor: "pointer",
+                    fontSize: 11, color: "#8b89aa" }}>
+                  {label}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          ) : (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#34d399" }}>✓ Noted — thanks.</div>
+          )}
 
-      {card.coaching_suggestions?.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-          {card.coaching_suggestions.map((s, i) => (
-            <p key={i} style={{ margin: 0, fontSize: 12, color: "#8b89aa", lineHeight: 1.55 }}>
-              <span style={{ color: "#a5a3c2", fontWeight: 600 }}>{s.area}: </span>
-              {s.suggestion}
+          {obs.resonance_prompt && (
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b6888", fontStyle: "italic", lineHeight: 1.5 }}>
+              💭 {obs.resonance_prompt}
             </p>
-          ))}
+          )}
         </div>
       )}
 
-      {card.notable_pattern && (
-        <p style={{ margin: "10px 0 0", fontSize: 12, color: "#4a4865", lineHeight: 1.5, borderTop: "1px solid #1e2438", paddingTop: 8 }}>
-          {card.notable_pattern}
+      {card.tip && (
+        <p style={{ margin: "0 0 10px", fontSize: 12, color: "#8b89aa", lineHeight: 1.55 }}>
+          💡 {card.tip}
         </p>
       )}
+
+      <button onClick={() => onOpenSession(card.session_id)}
+        style={{ background: "none", border: "none", cursor: "pointer",
+          color: "#5b9cf6", fontSize: 12, fontWeight: 500, padding: 0,
+          marginTop: 2 }}>
+        View full session →
+      </button>
     </CardShell>
   )
 }
@@ -122,20 +144,20 @@ function DimensionEventCard({ card, faded, onDismiss }) {
   )
 }
 
-function HomeCard({ card, i, faded, onDismiss }) {
+function HomeCard({ card, i, faded, onDismiss, onOpenSession }) {
   const dismiss = () => onDismiss(card.card_key)
   return (
     <RevealItem index={i}>
       {card.type === "dimension_event"
         ? <DimensionEventCard card={card} faded={faded} onDismiss={dismiss} />
-        : <SessionRecapCard card={card} faded={faded} onDismiss={dismiss} />}
+        : <SessionRecapCard card={card} faded={faded} onDismiss={dismiss} onOpenSession={onOpenSession} />}
     </RevealItem>
   )
 }
 
 const VISIBLE_COUNT = 7
 
-export default function HomeView({ active }) {
+export default function HomeView({ active, onOpenSession }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(false)
@@ -212,7 +234,7 @@ export default function HomeView({ active }) {
           {visibleCards.map((card, i) => (
             <HomeCard key={card.card_key} card={card} i={i}
               faded={!expanded && hasOverflow && i === VISIBLE_COUNT}
-              onDismiss={handleDismiss} />
+              onDismiss={handleDismiss} onOpenSession={onOpenSession} />
           ))}
           {!expanded && hasOverflow && (
             <button onClick={() => setExpanded(true)}
