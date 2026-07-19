@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import api from "../lib/api"
 import Reveal, { RevealItem } from "./Reveal"
+import { signalColor } from "../lib/signalColor"
 
 // Visual identity per trigger type — independent of the (not-yet-built) per-
 // dimension color palette on the You page; this is scoped to what Home's
@@ -60,7 +61,6 @@ function CardShell({ color, title, badge, faded, onDismiss, children }) {
 }
 
 function SessionRecapCard({ card, faded, onDismiss, onOpenSession }) {
-  const [resonance, setResonance] = useState(null)
   const dateLabel = card.date ? new Date(card.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""
   const obs = card.observation
 
@@ -75,36 +75,16 @@ function SessionRecapCard({ card, faded, onDismiss, onOpenSession }) {
       )}
 
       {/* Exactly one observation, backend-ranked — the other two + their tips
-          live on the full session detail page (View full session below) */}
+          (and the resonance vote) live on the full session detail page */}
       {obs && (
         <div style={{ marginBottom: card.tip ? 10 : 6 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: signalColor(obs.signal),
+            textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>
+            {obs.signal.replace(/_/g, " ")}
+          </div>
           <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.6 }}>
             {obs.observation}
           </p>
-
-          {resonance === null ? (
-            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, color: "#4a4865" }}>Does this resonate?</span>
-              {[["Yes", "yes"], ["Somewhat", "somewhat"], ["No", "no"]].map(([label, value]) => (
-                <button key={label} onClick={async () => {
-                  setResonance(label)
-                  try {
-                    const form = new FormData()
-                    form.append("signal", obs.signal)
-                    form.append("response", value)
-                    await api.post(`/api/sessions/${card.session_id}/resonance`, form)
-                  } catch {}
-                }}
-                  style={{ padding: "3px 10px", border: "1px solid #1e2438",
-                    borderRadius: 16, background: "#131827", cursor: "pointer",
-                    fontSize: 11, color: "#8b89aa" }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div style={{ marginTop: 6, fontSize: 11, color: "#34d399" }}>✓ Noted — thanks.</div>
-          )}
 
           {obs.resonance_prompt && (
             <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b6888", fontStyle: "italic", lineHeight: 1.5 }}>

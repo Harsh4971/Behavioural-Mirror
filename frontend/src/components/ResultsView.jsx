@@ -3,6 +3,7 @@ import Reveal, { RevealItem } from "./Reveal"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import api from "../lib/api"
 import SessionSpectrum from "./SessionSpectrum"
+import { signalColor } from "../lib/signalColor"
 
 const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
@@ -35,15 +36,7 @@ function CoachingCard({ suggestion }) {
 
 function ObservationCard({ obs, sessionId, tip }) {
   const [resonance, setResonance] = useState(null)
-  const signalColors = {
-    talk_ratio: "#818cf8", speech_rate: "#5b9cf6",
-    speech_acceleration: "#f472b6", pauses: "#f59e0b",
-    interruptions: "#f87171", filler_words: "#fb923c",
-    vocal_energy: "#0891b2", questions: "#34d399",
-    monologue: "#818cf8", vocabulary_richness: "#a3e635",
-    silence_ratio: "#8b89aa", pitch: "#0891b2", engagement: "#5b9cf6"
-  }
-  const color = signalColors[obs.signal] || "#8b89aa"
+  const color = signalColor(obs.signal)
 
   return (
     <div style={{ border: "1px solid #1e2438", borderRadius: 10,
