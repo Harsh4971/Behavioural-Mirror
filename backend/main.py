@@ -1508,10 +1508,18 @@ def get_session_spectrum(session_id: str, user_id: str = Depends(get_current_use
 
     same_context_history = [p["sig"] for p in parsed if p["context"] == target["context"] and p["id"] != session_id]
 
-    composites = {
-        key: compute_composite_position(key, target["sig"], same_context_history)
-        for key in COMPOSITE_CONFIG
-    }
+    # One composite's failure (evidence_gate.py already guards individual
+    # signal extraction, but a defensive outer layer here too — same pattern
+    # as _run_finalize_job's per-speaker try/except) never takes down the
+    # other 6 or the whole request.
+    composites = {}
+    for key in COMPOSITE_CONFIG:
+        try:
+            composites[key] = compute_composite_position(key, target["sig"], same_context_history)
+        except Exception as e:
+            logger.error("[spectrum] Composite '%s' failed for session %s: %s", key, _sid(session_id), e)
+            composites[key] = {"composite": key, "label": COMPOSITE_CONFIG[key]["label"],
+                                "is_steady": False, "position": None, "components": []}
     return {"session_id": session_id, "context": target["context"], "composites": composites}
 
 

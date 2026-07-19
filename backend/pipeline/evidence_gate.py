@@ -358,6 +358,17 @@ COMPOSITE_CONFIG = {
 }
 
 
+def _safe_extract(signal_key: str, signals: dict):
+    """extract_value, but a session missing the signal group entirely (older
+    data recorded before that signal existed) returns None instead of raising
+    — same treatment already given to a signal that's merely null within an
+    existing group (e.g. question_pickup with zero questions asked)."""
+    try:
+        return extract_value(signal_key, signals)
+    except (KeyError, TypeError, ZeroDivisionError):
+        return None
+
+
 def compute_composite_position(composite_key: str, today_signals: dict, historical_signals_list: list) -> dict:
     """A composite's self-relative position (less/about/more than your usual),
     built by z-scoring each component against *its own* history first, then
@@ -386,14 +397,19 @@ def compute_composite_position(composite_key: str, today_signals: dict, historic
     component_detail = []
 
     for signal_key, weight, mode in cfg["components"]:
-        historical_values = [extract_value(signal_key, s) for s in historical_signals_list]
+        # Real session history spans this project's whole evolution — older
+        # sessions can genuinely lack a signal group entirely (e.g. recorded
+        # before hedging/directness/curiosity existed), not just have a null
+        # value within an existing one. _safe_extract turns that into "no
+        # value" rather than an unhandled KeyError taking down the endpoint.
+        historical_values = [_safe_extract(signal_key, s) for s in historical_signals_list]
         evidence = compute_evidence(signal_key, historical_values)
 
         if not evidence["is_steady"]:
             component_detail.append({"signal": signal_key, "steady": False})
             continue
 
-        today_value = extract_value(signal_key, today_signals)
+        today_value = _safe_extract(signal_key, today_signals)
         if today_value is None:
             component_detail.append({"signal": signal_key, "steady": True, "usable": False})
             continue
