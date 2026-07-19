@@ -202,7 +202,7 @@ export default function HistoryView({ onSelect, active = false }) {
       <p style={{ color: "#f87171", fontSize: 14, marginBottom: 12 }}>
         Could not load sessions — the server may be starting up.
       </p>
-      <button onClick={loadSessions} style={{
+      <button onClick={() => loadSessions()} style={{
         background: "rgba(29,78,216,0.1)", border: "1px solid rgba(29,78,216,0.3)",
         borderRadius: 8, padding: "8px 20px", color: "#5b9cf6",
         fontSize: 13, fontWeight: 500, cursor: "pointer",
