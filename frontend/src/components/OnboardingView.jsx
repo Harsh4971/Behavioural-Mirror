@@ -48,10 +48,10 @@ function StepConcept() {
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {[
-          ["A behavioral portrait, built from your voice",
-           "Speech pace, listening quality, confidence signals, filler words — mapped across every conversation you have."],
-          ["Patterns that span multiple sessions",
-           "The mirror notices what you can't — how you shift between contexts, what consistently holds you back, what's quietly improving."],
+          ["How you actually show up in the room",
+           "Whether you ask more questions than usual, how directly you speak, whether you build on what others say — not just your pace or filler words."],
+          ["Patterns named only once they're steady for you",
+           "The mirror doesn't guess from one conversation. A pattern only gets named once it's shown up consistently across your own sessions."],
           ["Specific to you, not generic advice",
            "No templates. No benchmarks against strangers. Just an honest reflection of how you communicate, growing sharper over time."],
         ].map(([title, body]) => (
@@ -77,89 +77,103 @@ function StepConcept() {
 }
 
 function StepHow() {
+  const steps = [
+    ["Join or start a Google Meet call",
+     "The mirror panel detects it automatically — no setup, no extra tab."],
+    ["Hit Start Recording",
+     "One button in the side panel, whenever the conversation begins."],
+    ["Stop whenever you're done",
+     "Processing happens on its own — your session shows up in your feed within a few minutes."],
+  ]
   return (
     <div>
       <h1 style={{
         fontSize: 24, fontWeight: 700, color: "#f0eeff",
         margin: "0 0 10px", lineHeight: 1.3, letterSpacing: "-0.3px",
       }}>
-        Two ways to feed the mirror
+        One button, during the call
       </h1>
-      <p style={{ fontSize: 14, color: "#6b6888", margin: "0 0 24px", lineHeight: 1.75 }}>
-        Every session you add teaches it something new. Start with whatever you have.
+      <p style={{ fontSize: 14, color: "#6b6888", margin: "0 0 28px", lineHeight: 1.75 }}>
+        Every Google Meet call you record teaches the mirror something new about how you show up.
       </p>
 
-      {/* Path 1 — Google Meet */}
-      <div style={{
-        padding: "18px 18px", background: "#151922",
-        border: "1px solid rgba(29,78,216,0.3)", borderRadius: 12, marginBottom: 12,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-            background: "rgba(29,78,216,0.12)", border: "1px solid rgba(29,78,216,0.3)",
-            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-          }}>
-            🎙️
-          </div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#f0eeff" }}>
-              Record a Google Meet
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {steps.map(([title, body], i) => (
+          <div key={title} style={{ display: "flex", gap: 16, position: "relative",
+            paddingBottom: i < steps.length - 1 ? 26 : 0 }}>
+            {i < steps.length - 1 && (
+              <div style={{ position: "absolute", left: 15, top: 36,
+                width: 2, height: "calc(100% - 10px)",
+                background: "linear-gradient(to bottom, rgba(29,78,216,0.25), transparent)" }} />
+            )}
+            <div style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+              background: "rgba(29,78,216,0.1)", border: "1.5px solid rgba(29,78,216,0.3)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, fontWeight: 700, color: "#5b9cf6", zIndex: 1 }}>
+              {i + 1}
             </div>
-            <div style={{ fontSize: 11, color: "#5b9cf6", fontWeight: 500 }}>
-              Live — during the call
-            </div>
-          </div>
-        </div>
-        <p style={{ fontSize: 13, color: "#6b6888", lineHeight: 1.65, margin: 0 }}>
-          When you're on a Google Meet, the mirror panel detects the call and shows a
-          "Start Recording" button. Hit it when the conversation begins — Mirror captures
-          your audio automatically and processes it in real time as the call runs.
-        </p>
-      </div>
-
-      {/* Path 2 — Upload */}
-      <div style={{
-        padding: "18px 18px", background: "#151922",
-        border: "1px solid #1e2438", borderRadius: 12, marginBottom: 20,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-            background: "rgba(8,145,178,0.1)", border: "1px solid rgba(8,145,178,0.25)",
-            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-          }}>
-            📁
-          </div>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#f0eeff" }}>
-              Upload a recording
-            </div>
-            <div style={{ fontSize: 11, color: "#0891b2", fontWeight: 500 }}>
-              Any conversation · Any platform
+            <div style={{ paddingTop: 4 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#f0eeff", marginBottom: 4 }}>
+                {title}
+              </div>
+              <div style={{ fontSize: 13, color: "#6b6888", lineHeight: 1.65 }}>{body}</div>
             </div>
           </div>
-        </div>
-        <p style={{ fontSize: 13, color: "#6b6888", lineHeight: 1.65, margin: 0 }}>
-          Have a Zoom recording, a voice memo, or a phone call saved? Upload it from
-          the Upload tab. Mirror works with any audio or video file — it extracts your
-          voice, analyzes the conversation, and adds it to your profile.
-        </p>
-      </div>
-
-      <div style={{
-        padding: "10px 14px", background: "rgba(29,78,216,0.05)",
-        border: "1px solid rgba(29,78,216,0.12)", borderRadius: 8,
-        fontSize: 12, color: "#4a4865", lineHeight: 1.65,
-      }}>
-        Your audio is deleted immediately after analysis. Only the behavioral insights
-        are stored — never the recording itself.
+        ))}
       </div>
     </div>
   )
 }
 
-const STEPS = [StepConcept, StepHow]
+function StepTrust() {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <div style={{ width: 48, height: 48, borderRadius: 12,
+          background: "rgba(29,78,216,0.1)", border: "1px solid rgba(29,78,216,0.3)",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>
+          🔒
+        </div>
+      </div>
+      <h1 style={{
+        fontSize: 24, fontWeight: 700, color: "#f0eeff",
+        margin: "0 0 10px", lineHeight: 1.3, textAlign: "center", letterSpacing: "-0.3px",
+      }}>
+        What happens to your recording
+      </h1>
+      <p style={{ fontSize: 14, color: "#6b6888", margin: "0 0 24px", lineHeight: 1.75, textAlign: "center" }}>
+        Two things are true every single time, no exceptions.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {[
+          ["Deleted the instant it's processed",
+           "Your audio is analyzed and permanently deleted the moment that finishes — never stored, never replayed, never shared with anyone, including us."],
+          ["We remember you. No one else.",
+           "Only your own patterns are kept. Anyone else on the call is never profiled, never stored, never analyzed individually — the mirror reflects you, not the room."],
+        ].map(([title, body]) => (
+          <div key={title} style={{
+            display: "flex", gap: 14, padding: "14px 16px",
+            background: "#151922", border: "1px solid #1e2438", borderRadius: 10,
+          }}>
+            <div style={{
+              width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+              background: G, marginTop: 5,
+            }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#f0eeff", marginBottom: 4 }}>
+                {title}
+              </div>
+              <div style={{ fontSize: 13, color: "#6b6888", lineHeight: 1.65 }}>{body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const STEPS = [StepConcept, StepHow, StepTrust]
 
 export default function OnboardingView({ onDone }) {
   const [step, setStep] = useState(0)

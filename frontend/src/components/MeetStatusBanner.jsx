@@ -254,11 +254,15 @@ export default function MeetStatusBanner({ onViewHistory }) {
               Before you start
             </h3>
             <p style={{ fontSize: 13, color: "#8b89aa", lineHeight: 1.7,
+              margin: "0 0 14px", textAlign: "center" }}>
+              Audio is processed and permanently deleted the moment analysis is
+              complete — never stored, never replayed, never shared.
+            </p>
+            <p style={{ fontSize: 13, color: "#8b89aa", lineHeight: 1.7,
               margin: "0 0 20px", textAlign: "center" }}>
-              Mirror records this call to build your behavioral portrait. Audio is
-              processed and permanently deleted the moment analysis is complete —
-              never stored or shared. Please ensure all participants on the call
-              are aware that this conversation is being recorded.
+              <strong style={{ color: "#c4c2d8" }}>Only your own patterns are kept</strong> — whoever
+              else is on this call is never profiled or stored. Please make sure everyone
+              on the call knows it's being recorded.
             </p>
             <button
               onClick={() => {

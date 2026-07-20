@@ -12,8 +12,8 @@ const FEATURES = [
   {
     icon: "🔄",
     color: "#34d399",
-    title: "Mirror Feed",
-    body: "Patterns that only emerge across multiple sessions. After a few conversations, the mirror starts noticing what you consistently do — and don't do.",
+    title: "A Feed That Reflects Back",
+    body: "Session recaps and the moments a pattern first shows up, interleaved — not a static report, a running read on how you're actually coming across.",
   },
   {
     icon: "🎯",
@@ -25,19 +25,19 @@ const FEATURES = [
     icon: "📊",
     color: "#818cf8",
     title: "Your Behavioral Shape",
-    body: "Five dimensions tracked across all your sessions — Confidence, Assertiveness, Listening Quality, Composure, and Clarity — shown as a radar you can watch shift.",
+    body: "Real signals — pace, curiosity, directness, how you build on others — positioned against your own history. No grades, no numbers, never compared to anyone but you.",
   },
   {
-    icon: "🎙️",
+    icon: "🧭",
     color: "#fb923c",
-    title: "Voice Recognition",
-    body: "Enroll your voice once. We identify which speaker is you across all future sessions automatically — no manual tagging needed.",
+    title: "Every Session, Broken Down",
+    body: "Each recording gets its own read — what the conversation was about, and how this one session compared to your own usual, signal by signal.",
   },
   {
     icon: "🔒",
     color: "#5b9cf6",
     title: "Privacy by Design",
-    body: "Your audio is processed and discarded. Transcripts are analyzed and never stored. Only your behavioral patterns are kept — never your actual words.",
+    body: "Your audio is processed and deleted the moment analysis finishes. Only your own behavioral patterns are kept — never your words, never anyone else's.",
   },
 ]
 
@@ -142,7 +142,7 @@ export default function HowItWorksView({ onBack }) {
           {[
             <>In every conversation you're focused on what to say next. Nobody tells you that you interrupted four times, spoke for 70% of the conversation, or always go quiet when you're challenged.</>,
             <><span style={{ color: "#c4c2d8", fontWeight: 600 }}>Good coaches cost hundreds per hour.</span> Therapy takes years. Most feedback from the people around you is filtered through politeness or filtered out entirely.</>,
-            <><span style={{ color: "#c4c2d8", fontWeight: 600 }}>That's why mirror exists.</span> Upload a recording and we show you exactly what's happening — not what you think is happening.</>,
+            <><span style={{ color: "#c4c2d8", fontWeight: 600 }}>That's why mirror exists.</span> Record a Google Meet call and we show you exactly what's happening — not what you think is happening.</>,
           ].map((text, i) => (
             <p key={i} style={{ margin: 0, fontSize: 14, color: "#8b89aa",
               lineHeight: 1.85, textAlign: "center", maxWidth: 540, marginInline: "auto" }}>
@@ -161,8 +161,8 @@ export default function HowItWorksView({ onBack }) {
           {[
             {
               num: "1",
-              title: "Upload a recording",
-              body: "Any conversation — a meeting, a call, a catch-up. 2 to 20 minutes. Hindi or English. What you talked about doesn't matter. How you showed up does.",
+              title: "Record a Google Meet call",
+              body: "Hit one button when the conversation starts. Hindi or English, code-switched or not — what you talked about doesn't matter. How you showed up does.",
             },
             {
               num: "2",
@@ -172,7 +172,7 @@ export default function HowItWorksView({ onBack }) {
             {
               num: "3",
               title: "Your profile builds over time",
-              body: "One session gives immediate feedback. Three sessions reveals patterns. Ten sessions and the mirror knows your behavioral tendencies better than most people who know you.",
+              body: "Every session gives you something. A handful in, real patterns start emerging — each one only named once it's shown up consistently for you, never guessed early.",
             },
           ].map(({ num, title, body }, i, arr) => (
             <div key={num} style={{ display: "flex", gap: 20, position: "relative",
@@ -259,13 +259,13 @@ export default function HowItWorksView({ onBack }) {
         <div style={{ fontSize: 32, marginBottom: 14 }}>🔒</div>
         <h3 style={{ fontSize: 17, fontWeight: 700, color: "#f0eeff",
           margin: "0 0 10px" }}>
-          Privacy by design
+          We remember you. No one else.
         </h3>
         <p style={{ fontSize: 13, color: "#6b6888", lineHeight: 1.8, margin: 0,
           maxWidth: 420, marginInline: "auto" }}>
-          Your audio is processed and immediately discarded. Transcripts are analyzed
-          and never stored. The only thing we keep is a behavioral summary —
-          never your actual words.
+          Your audio is processed and permanently deleted the moment analysis finishes —
+          never stored, never replayed. Only your own behavioral patterns are kept.
+          Anyone else on the call is never profiled, never stored, never analyzed individually.
         </p>
       </div>
       </Reveal>
