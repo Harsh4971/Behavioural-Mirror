@@ -22,15 +22,23 @@ export default function App() {
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [passwordRecovery, setPasswordRecovery] = useState(false)
-  const [onboardingDone, setOnboardingDone] = useState(
-    () => !!localStorage.getItem("bm_onboarding_v1")
-  )
+  const [onboardingDone, setOnboardingDone] = useState(false)
   const [view, setView] = useState("home")
   const [results, setResults] = useState(null)
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showFeedback, setShowFeedback] = useState(false)
+
+  // Onboarding-done must be scoped per account, not per browser — a flat
+  // "bm_onboarding_v1" key meant a second account signing in on a browser
+  // where a different account had already onboarded would silently skip it.
+  // Re-checked whenever the signed-in user actually changes (sign out then
+  // sign back in as someone else, without a full page reload).
+  useEffect(() => {
+    const uid = session?.user?.id
+    setOnboardingDone(uid ? !!localStorage.getItem(`bm_onboarding_v1_${uid}`) : false)
+  }, [session?.user?.id])
 
   // Home's "View full session" link only has a session_id — fetch the full
   // signals/insights/dimensions shape ResultsView needs, same pattern as
@@ -139,7 +147,10 @@ export default function App() {
   )
 
   if (!onboardingDone) return (
-    <OnboardingView onDone={() => setOnboardingDone(true)} />
+    <OnboardingView onDone={() => {
+      localStorage.setItem(`bm_onboarding_v1_${session.user.id}`, "1")
+      setOnboardingDone(true)
+    }} />
   )
 
   return (

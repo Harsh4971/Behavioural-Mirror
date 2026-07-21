@@ -180,7 +180,9 @@ export default function OnboardingView({ onDone }) {
   const StepComponent = STEPS[step]
 
   function finish() {
-    localStorage.setItem("bm_onboarding_v1", "1")
+    // Persisting the "done" flag (scoped to the signed-in account) is
+    // App.jsx's job — it's the one that knows which user is currently
+    // signed in, this component doesn't need to.
     onDone()
   }
 
