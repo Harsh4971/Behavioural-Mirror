@@ -51,7 +51,7 @@ class InsightGenerator:
         self.client = Anthropic(api_key=api_key)
 
     def generate(self, signals: dict, context: str, evidence: dict = None,
-                 transcript_text: str = "", dimensions: dict = None,
+                 transcript_text: str = "",
                  session_history: list = None, resonance_calibration: dict = None,
                  conversation_types: list = None) -> dict:
         structured_input = self._prepare_input(signals, context, evidence)

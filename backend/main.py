@@ -29,7 +29,6 @@ from pipeline.transcriber import Transcriber
 from pipeline.diarizer import Diarizer
 from pipeline.signal_extractor import SignalExtractor
 from pipeline.insight_generator import InsightGenerator
-from pipeline.dimension_scorer import DimensionScorer
 from pipeline.voiceprint import VoiceprintMatcher
 from pipeline.context_detector import ContextDetector
 from pipeline.portrait_synthesizer import PortraitSynthesizer
@@ -75,7 +74,7 @@ _cancelled: set = set()
 
 # Per-job watchdog timers — cancelled when job completes normally
 _job_timers: dict = {}
-_JOB_TIMEOUT_S = 25 * 60  # 25 minutes — matches the 25-min recording chunk size
+_JOB_TIMEOUT_S = 20 * 60  # matches the 20-min recording chunk size
 
 
 def _start_job_timeout(job_key: str, cancel_id: str):
@@ -121,7 +120,6 @@ transcriber = Transcriber(api_key=os.getenv("DEEPGRAM_API_KEY"))
 diarizer = Diarizer(hf_token=os.getenv("HF_TOKEN"))
 insight_gen = InsightGenerator(api_key=os.getenv("ANTHROPIC_API_KEY"))
 context_detector = ContextDetector(api_key=os.getenv("ANTHROPIC_API_KEY"))
-dimension_scorer = DimensionScorer()
 voiceprint_matcher = VoiceprintMatcher(hf_token=os.getenv("HF_TOKEN"))
 portrait_synth = PortraitSynthesizer(api_key=os.getenv("ANTHROPIC_API_KEY"))
 anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -680,20 +678,38 @@ async def start_prepare_session(
     with open(temp_path, "wb") as f:
         f.write(contents)
 
-    subprocess.run(
+    _ffmpeg_result = subprocess.run(
         ["ffmpeg", "-i", temp_path, "-ar", "16000", "-ac", "1", "-y", audio_path],
         capture_output=True
     )
     os.remove(temp_path)
 
+    if _ffmpeg_result.returncode != 0:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        logger.error("[%s] ffmpeg failed on main recording (code %d): %s",
+                     _sid(session_id), _ffmpeg_result.returncode,
+                     _ffmpeg_result.stderr.decode(errors="replace")[:500])
+        raise HTTPException(
+            status_code=400,
+            detail="Couldn't process that recording — the audio file may be corrupted. Please try again."
+        )
+
     import wave
-    with wave.open(audio_path, "r") as _wf:
-        _duration_s = _wf.getnframes() / _wf.getframerate()
-    if _duration_s > 1800:
+    try:
+        with wave.open(audio_path, "r") as _wf:
+            _duration_s = _wf.getnframes() / _wf.getframerate()
+    except wave.Error:
         os.remove(audio_path)
         raise HTTPException(
             status_code=400,
-            detail="Recording exceeds the 30-minute limit. Please trim and re-upload."
+            detail="Couldn't process that recording — the audio file may be corrupted. Please try again."
+        )
+    if _duration_s > 1320:  # 22 min — 20-min chunk cap + a small buffer for client-side timing slop
+        os.remove(audio_path)
+        raise HTTPException(
+            status_code=400,
+            detail="Recording exceeds the 20-minute limit. Please trim and re-upload."
         )
 
     # Parse WebRTC speaker timeline if provided (skips pyannote diarization)
@@ -717,17 +733,35 @@ async def start_prepare_session(
         if mic_contents:
             with open(mic_temp_path, "wb") as f:
                 f.write(mic_contents)
-            subprocess.run(
+            _mic_ffmpeg_result = subprocess.run(
                 ["ffmpeg", "-i", mic_temp_path, "-ar", "16000", "-ac", "1", "-y", mic_audio_path],
                 capture_output=True
             )
             os.remove(mic_temp_path)
-            with wave.open(mic_audio_path, "r") as _mic_wf:
-                mic_duration_s = _mic_wf.getnframes() / _mic_wf.getframerate()
-            print(
-                f"[{_sid(session_id)}] ▶ Mic audio received ({len(mic_contents)} bytes, "
-                f"{mic_duration_s:.1f}s after conversion)"
-            )
+
+            # Mic is supplementary here (falls back to tab-derived user segments
+            # downstream, same as the "no mic content" branch below) — a bad
+            # mic conversion shouldn't fail the whole upload, just drop the mic stream.
+            _mic_ok = _mic_ffmpeg_result.returncode == 0
+            if _mic_ok:
+                try:
+                    with wave.open(mic_audio_path, "r") as _mic_wf:
+                        mic_duration_s = _mic_wf.getnframes() / _mic_wf.getframerate()
+                    print(
+                        f"[{_sid(session_id)}] ▶ Mic audio received ({len(mic_contents)} bytes, "
+                        f"{mic_duration_s:.1f}s after conversion)"
+                    )
+                except wave.Error:
+                    _mic_ok = False
+
+            if not _mic_ok:
+                if os.path.exists(mic_audio_path):
+                    os.remove(mic_audio_path)
+                logger.warning("[%s] ffmpeg failed on mic recording (code %d) — continuing without mic audio: %s",
+                                _sid(session_id), _mic_ffmpeg_result.returncode,
+                                _mic_ffmpeg_result.stderr.decode(errors="replace")[:500])
+                mic_audio_path = None
+                mic_duration_s = None
         else:
             mic_audio_path = None
 
@@ -1154,7 +1188,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
         # (up to MAX_SPEAKERS_TO_ANALYZE), persisting their behavioral signals
         # indefinitely in all_speakers_signals_json purely to power the old
         # diarization-era "Not you?" speaker-switcher — removed along with it.
-        logger.info("[%s] 1/4 Extracting behavioral signals...", _sid(session_id))
+        logger.info("[%s] 1/2 Extracting behavioral signals...", _sid(session_id))
         emit("extracting", "Extracting behavioral signals…")
 
         try:
@@ -1175,14 +1209,15 @@ def _run_finalize_job(session_id, confirmed_speaker):
             logger.info("[%s] ✕ Cancelled after signal extraction", _sid(session_id))
             return
 
-        # ── Step 2: Dimension scoring ─────────────────────────────────
-        logger.info("[%s] 2/3 Scoring behavioral dimensions...", _sid(session_id))
-        emit("scoring", "Scoring behavioral dimensions…")
-        dimensions = dimension_scorer.score_all(signals)
-        logger.info("[%s]    Dimensions: %s", _sid(session_id), list((dimensions or {}).keys()))
+        # dimension_scorer's 0-100 numeric trait scoring (confidence, composure,
+        # etc.) used to run here — retired along with the old Dimensions tab /
+        # MiniScoreBar UI, which no longer read it. dimensions_json stays in the
+        # DB schema (always {} going forward) rather than migrating it away,
+        # same pattern as all_speakers_signals_json above.
+        dimensions = {}
 
-        # ── Step 3: Context detection + insight generation ────────────
-        logger.info("[%s] 3/3 Detecting context + generating insights...", _sid(session_id))
+        # ── Step 2: Context detection + insight generation ────────────
+        logger.info("[%s] 2/2 Detecting context + generating insights...", _sid(session_id))
         emit("generating", "Generating insights with AI…")
         sample_text = _sample_transcript(merged)
         full_text = _full_transcript(merged)
@@ -1200,7 +1235,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
 
         logger.info("[%s]    Calling insight_gen.generate...", _sid(session_id))
         insights = insight_gen.generate(
-            signals, primary_context, evidence, full_text, dimensions,
+            signals, primary_context, evidence, full_text,
             session_history=session_history,
             resonance_calibration=resonance_calibration,
             conversation_types=conversation_types,
@@ -1213,7 +1248,7 @@ def _run_finalize_job(session_id, confirmed_speaker):
         # No voiceprint update — pyannote/voiceprint is quarantined off the live path
         # (CLAUDE.md rule #1); the user is identified by the mic stream, not by matching.
         _save_session(
-            session_id, user_id, signals, insights, dimensions,
+            session_id, user_id, signals, insights,
             primary_context, filename, confirmed_speaker,
             speaker_confirmed=True,
             fingerprint=fingerprint,
@@ -2154,7 +2189,7 @@ def _sample_transcript(merged: list, max_segments: int = 60) -> str:
 
 
 def _save_session(
-    session_id, user_id, signals, insights, dimensions,
+    session_id, user_id, signals, insights,
     context, filename="recording", detected_speaker="SPEAKER_00",
     speaker_confirmed=True, fingerprint=None
 ):
@@ -2163,6 +2198,11 @@ def _save_session(
     # participant (CLAUDE.md rule #8: never build a profile of the room). The
     # column stays in the DB schema (nullable, always NULL going forward) rather
     # than migrating it away as part of this change.
+    #
+    # dimensions_json is likewise always {} going forward — dimension_scorer's
+    # 0-100 numeric trait scoring fed the old Dimensions tab / MiniScoreBar UI,
+    # both retired; nothing reads this column for new sessions anymore, but it
+    # stays in the schema rather than migrating away historical rows.
     supabase_admin.table("sessions").insert({
         "id": session_id,
         "user_id": user_id,
@@ -2172,6 +2212,6 @@ def _save_session(
         "speaker_confirmed": speaker_confirmed,
         "signals_json": json.dumps(signals),
         "insights_json": json.dumps(insights),
-        "dimensions_json": json.dumps(dimensions),
+        "dimensions_json": json.dumps({}),
         "fingerprint_json": json.dumps(fingerprint) if fingerprint else None,
     }).execute()

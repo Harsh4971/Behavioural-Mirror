@@ -49,7 +49,17 @@ class SignalExtractor:
         speakers = set(s["speaker"] for s in merged_segments if s["speaker"] != "UNKNOWN")
         others = speakers - {user_speaker_id}
         if others:
-            self.other_speaker = list(others)[0]
+            # Dyadic partner for the handful of signals that need exactly one
+            # (pauses, turn_dynamics, questions, engagement_proxy, crosstalk) —
+            # whoever the user actually shared the most airtime with, not an
+            # arbitrary pick off Python's set ordering (meaningless in 3+-person
+            # meetings). Room-wide signals (talk_ratio, interruptions, etc.)
+            # don't use this at all — see all_other_segs in extract_all().
+            duration_by_speaker = {}
+            for s in merged_segments:
+                if s["speaker"] in others:
+                    duration_by_speaker[s["speaker"]] = duration_by_speaker.get(s["speaker"], 0) + (s["end"] - s["start"])
+            self.other_speaker = max(duration_by_speaker, key=duration_by_speaker.get)
 
         self.audio, self.sr = librosa.load(audio_path, sr=16000)
 

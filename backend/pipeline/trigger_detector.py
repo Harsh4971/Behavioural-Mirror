@@ -131,6 +131,18 @@ def _has_drifted(is_categorical: bool, prior: dict, current: dict, cfg: dict) ->
     return relative_change > cfg["cv_threshold"]
 
 
+def _drift_direction(is_categorical: bool, prior: dict, current: dict):
+    """Real up/down for a continuous signal's drift — same comparison
+    _check_anomaly uses. Categorical drift is a label swap, not a direction,
+    so it stays None (no arrow rendered client-side)."""
+    if is_categorical:
+        return None
+    prev_mean = prior.get("last_steady_mean")
+    if prev_mean is None:
+        return None
+    return "up" if current["mean"] > prev_mean else "down"
+
+
 def _recurring_direction(is_categorical: bool, prior: dict, current: dict, cfg: dict) -> str:
     """Distinguishes 'back_to_usual' (regained the SAME value) from a fresh
     drift discovered via the regain — same underlying content as `drift`,
@@ -292,7 +304,7 @@ def _check_dimension(user_id, session_id, dimension_key, scope, parsed, cfg, con
             candidates.append(("recurring", _recurring_direction(is_categorical, prior, current, cfg)))
     elif current["is_steady"] and prior_is_steady:
         if _has_drifted(is_categorical, prior, current, cfg):
-            candidates.append(("drift", None))
+            candidates.append(("drift", _drift_direction(is_categorical, prior, current)))
     # steady -> not-steady, not-steady -> not-steady: no candidate from this branch.
 
     anomaly = None
