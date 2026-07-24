@@ -6,6 +6,7 @@ import {
 } from "recharts"
 import api from "../lib/api"
 import Reveal, { RevealItem } from "./Reveal"
+import { SIGNAL_COLORS } from "../lib/dimensionColors"
 
 const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
@@ -93,16 +94,6 @@ function spectrumPosition(signalKey, mean, modeLabel) {
   return Math.max(4, Math.min(100, pct))
 }
 
-// Small per-signal identity color — used as accent dots on Reflected Back /
-// How You Shift By Context cards, and to tint Shape's axis labels. Alongside,
-// not replacing, the existing framing-color left-border on steady cards.
-const SIGNAL_COLORS = {
-  talk_ratio: "#818cf8", curiosity: "#34d399", pace: "#5b9cf6", response_latency: "#f59e0b",
-  hedging: "#a78bfa", directness: "#f472b6", conversational_drive: "#fb7185",
-  building_on_others: "#2dd4bf", turn_taking_assertiveness: "#22d3ee", pacing_arc: "#38bdf8",
-  vocal_expressiveness: "#e879f9", energy_arc: "#f97316", turn_length: "#94a3b8",
-  vocabulary_richness: "#c084fc", fillers: "#71717a",
-}
 
 // Curated to 7 — deliberately not all 15 tracked dimensions ("we can just
 // best 5-7 trends which are really worthy to earn that place"). Selection
@@ -518,7 +509,6 @@ export default function ProfileView({ active }) {
   const [profile, setProfile] = useState(null)
   const [trends, setTrends] = useState([])
   const [loading, setLoading] = useState(true)
-  const [blindSpotsOpen, setBlindSpotsOpen] = useState(false)
 
   useEffect(() => {
     if (!active) return
@@ -572,7 +562,7 @@ export default function ProfileView({ active }) {
   }
 
   const { profile_strength, portrait, how_you_shift_by_context,
-          blind_spots, indicators, portrait_paragraph, portrait_tags, coaching } = profile
+          indicators, portrait_paragraph, portrait_tags, coaching } = profile
 
   const steady = portrait?.steady || []
   const stillForming = portrait?.still_forming || []
@@ -586,67 +576,36 @@ export default function ProfileView({ active }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
 
-      {/* Header */}
+      {/* Header — confidence-only now: how much the app knows about you.
+          Facts about you (session count, etc.) live in the indicators
+          strip below instead. No page title here — the "You" nav tab
+          already says which page this is. */}
       <Reveal>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-            You
-          </h2>
-
-          {/* Header is confidence-only now — how much the app knows about you.
-              Facts about you (session count, etc.) live in the indicators
-              strip below instead. */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-            {profile_strength?.label && (
-              <>
-                <span style={{ fontSize: 12, color: "#4a4865" }}>{profile_strength.label}</span>
-                <div style={{ width: 60, height: 3, background: "#1e2438",
-                  borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 2,
-                    width: `${profile_strength.pct}%`, background: G,
-                    transition: "width 0.6s ease" }} />
-                </div>
-              </>
-            )}
-          </div>
-
-          {blind_spots?.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <button
-                onClick={() => setBlindSpotsOpen(v => !v)}
-                style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
-                  display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ fontSize: 10, color: "#3a3a52", display: "inline-block",
-                  transform: blindSpotsOpen ? "rotate(90deg)" : "rotate(0deg)",
-                  transition: "transform 0.2s" }}>▶</span>
-                <span style={{ fontSize: 12, color: "#4a4865" }}>
-                  {blind_spots.length} context{blind_spots.length > 1 ? "s" : ""} missing
-                </span>
-              </button>
-              {blindSpotsOpen && (
-                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                  {blind_spots.map((spot, i) => (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                      <span style={{ fontSize: 11, color: "#3a3a52", marginTop: 1, flexShrink: 0 }}>·</span>
-                      <div>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "#6b6888" }}>{spot.label}</span>
-                        <span style={{ fontSize: 12, color: "#4a4865" }}> — {spot.message}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {profile_strength?.label && (
+          <>
+            <span style={{ fontSize: 12, color: "#4a4865" }}>{profile_strength.label}</span>
+            <div style={{ width: 60, height: 3, background: "#1e2438",
+              borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 2,
+                width: `${profile_strength.pct}%`, background: G,
+                transition: "width 0.6s ease" }} />
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
       </Reveal>
 
       {/* Portrait paragraph + tags — absent until >=1 signal is steady */}
       {portrait_paragraph && (
         <Reveal delay={40}>
-          <PortraitParagraph text={portrait_paragraph} tags={portrait_tags} />
+          <div>
+            <SectionLabel>Standing Portrait</SectionLabel>
+            <h2 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 14px", color: "#f0eeff" }}>
+              Your Portrait
+            </h2>
+            <PortraitParagraph text={portrait_paragraph} tags={portrait_tags} />
+          </div>
         </Reveal>
       )}
 

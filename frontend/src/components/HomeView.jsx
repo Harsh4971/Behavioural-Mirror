@@ -3,21 +3,51 @@ import api from "../lib/api"
 import Reveal, { RevealItem } from "./Reveal"
 import { signalColor } from "../lib/signalColor"
 
+const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
+
+// Matches ProfileView.jsx's SectionLabel exactly, for the same "eyebrow above
+// a subheading" pattern used across You/History — Home didn't have one yet.
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: 1.4,
+      textTransform: "uppercase", marginBottom: 4,
+      background: G, WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent", backgroundClip: "text",
+    }}>
+      {children}
+    </div>
+  )
+}
+
 // Visual identity per trigger type — independent of the (not-yet-built) per-
 // dimension color palette on the You page; this is scoped to what Home's
 // dimension-event cards need: a quick visual read on WHAT KIND of thing
 // happened (a first discovery vs. a shift vs. something to just note), not
 // WHICH of the 15 dimensions it is.
+// icon is a fixed glyph per trigger type — it marks WHAT KIND of event this
+// is and never changes. Direction (below) is a separate, dynamic ↑/↓ suffix
+// only added when the backend has a real measured direction for this event.
 const TRIGGER_CONFIG = {
-  first_time_steady: { color: "#34d399", label: "New pattern" },
-  context_shift:      { color: "#22d3ee", label: "Context shift" },
-  drift:              { color: "#f59e0b", label: "Shifted" },
-  recurring:          { color: "#a78bfa", label: "Recurring" },
-  anomaly:            { color: "#fb7185", label: "Worth noting" },
+  first_time_steady: { color: "#f59e0b", label: "New pattern", icon: "●" },
+  context_shift:      { color: "#22d3ee", label: "Context shift", icon: "↕" },
+  drift:              { color: "#34d399", label: "Shifted", icon: "↗" },
+  recurring:          { color: "#a78bfa", label: "Recurring", icon: "↻" },
+  anomaly:            { color: "#fb7185", label: "Worth noting", icon: "✦" },
 }
 
 function recurringLabel(direction) {
   return direction === "back_to_usual" ? "Back to usual" : "New pattern"
+}
+
+// The ONLY values that ever mean a real up/down movement are the literal
+// strings "up"/"down" — every other trigger type's `direction` field means
+// something else entirely (recurring's is a state name, categorical
+// anomaly's is "contradicts_established"), so this can't misfire on them.
+function directionArrow(direction) {
+  if (direction === "up") return "↑"
+  if (direction === "down") return "↓"
+  return ""
 }
 
 function DismissButton({ onDismiss }) {
@@ -31,31 +61,61 @@ function DismissButton({ onDismiss }) {
   )
 }
 
-function CardShell({ color, title, badge, faded, onDismiss, children }) {
+// Dims a hex color's RGB channels — used so the icon GLYPH itself sits a
+// notch below the badge pill's full-saturation color, rather than competing
+// with it at the same brightness.
+function darken(hex, amount) {
+  const num = parseInt(hex.slice(1), 16)
+  const r = Math.round(((num >> 16) & 0xff) * (1 - amount))
+  const g = Math.round(((num >> 8) & 0xff) * (1 - amount))
+  const b = Math.round((num & 0xff) * (1 - amount))
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+}
+
+function IconBadge({ icon, color }) {
+  return (
+    <div style={{
+      width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+      background: `${color}18`, border: `1px solid ${color}40`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 12.6, color: darken(color, 0.15), marginTop: 1,
+    }}>
+      {icon}
+    </div>
+  )
+}
+
+// `icon` is optional — only DimensionEventCard passes one. SessionRecapCard
+// never does, so it keeps its current left-border-only look, untouched.
+function CardShell({ color, icon, title, badge, faded, onDismiss, children }) {
   return (
     <div style={{
       padding: "14px 16px", borderRadius: 10,
       background: "#151922", border: "1px solid #1e2438",
-      borderLeft: `3px solid ${color}`,
+      borderLeft: icon ? "1px solid #1e2438" : `3px solid ${color}`,
       opacity: faded ? 0.45 : 1,
       transition: "opacity 0.3s ease",
+      display: "flex", gap: 12,
     }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff", textTransform: "capitalize" }}>
-            {title}
-          </span>
-          {badge && (
-            <span style={{ fontSize: 11, color, fontWeight: 600,
-              background: `${color}15`, border: `1px solid ${color}30`,
-              borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
-              {badge}
+      {icon && <IconBadge icon={icon} color={color} />}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#f0eeff", textTransform: "capitalize" }}>
+              {title}
             </span>
-          )}
+            {badge && (
+              <span style={{ fontSize: 11, color, fontWeight: 600,
+                background: `${color}15`, border: `1px solid ${color}30`,
+                borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap" }}>
+                {badge}
+              </span>
+            )}
+          </div>
+          <DismissButton onDismiss={onDismiss} />
         </div>
-        <DismissButton onDismiss={onDismiss} />
+        {children}
       </div>
-      {children}
     </div>
   )
 }
@@ -111,10 +171,12 @@ function SessionRecapCard({ card, faded, onDismiss, onOpenSession }) {
 }
 
 function DimensionEventCard({ card, faded, onDismiss }) {
-  const trig = TRIGGER_CONFIG[card.trigger_type] || { color: "#8b89aa", label: card.trigger_type }
-  const badge = card.trigger_type === "recurring" ? recurringLabel(card.direction) : trig.label
+  const trig = TRIGGER_CONFIG[card.trigger_type] || { color: "#8b89aa", label: card.trigger_type, icon: "●" }
+  const baseLabel = card.trigger_type === "recurring" ? recurringLabel(card.direction) : trig.label
+  const arrow = card.trigger_type === "recurring" ? "" : directionArrow(card.direction)
+  const badge = arrow ? `${baseLabel} ${arrow}` : baseLabel
   return (
-    <CardShell color={trig.color} title={card.label} badge={badge} faded={faded} onDismiss={onDismiss}>
+    <CardShell color={trig.color} icon={trig.icon} title={card.label} badge={badge} faded={faded} onDismiss={onDismiss}>
       {card.note && (
         <p style={{ margin: 0, fontSize: 13, color: "#c4c2d8", lineHeight: 1.65 }}>
           {card.note}
@@ -192,8 +254,9 @@ export default function HomeView({ active, onOpenSession }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
       <Reveal>
       <div>
-        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: "#f0eeff" }}>
-          Home
+        <SectionLabel>Your Feed</SectionLabel>
+        <h2 style={{ fontSize: 14, fontWeight: 700, margin: "0 0 4px", color: "#f0eeff" }}>
+          Mirror Feed
         </h2>
         <span style={{ fontSize: 12, color: "#4a4865" }}>
           {data.session_count} session{data.session_count > 1 ? "s" : ""}

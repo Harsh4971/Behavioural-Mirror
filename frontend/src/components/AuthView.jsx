@@ -3,6 +3,15 @@ import { supabase } from "../lib/supabase"
 
 const G = "linear-gradient(135deg, #1d4ed8 0%, #0891b2 100%)"
 
+// No hosted web copy of the app exists (mirrorai.live is a landing page
+// only) — any email link (reset, confirmation) has to redirect into the
+// extension's own fullpage view, which is what actually runs the React app.
+function extensionRedirectUrl() {
+  return typeof chrome !== "undefined" && chrome.runtime?.id
+    ? chrome.runtime.getURL("index.html") + "?fullpage=1"
+    : window.location.origin
+}
+
 export default function AuthView({ onAuth, initialMode = "login" }) {
   const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState("")
@@ -37,18 +46,17 @@ export default function AuthView({ onAuth, initialMode = "login" }) {
         if (error) throw error
         onAuth()
       } else if (mode === "reset") {
-        // No hosted web copy of the app exists (mirrorai.live is a landing
-        // page only) — the reset link has to redirect into the extension's
-        // own fullpage view, which is what actually runs the React app.
-        const redirectTo = typeof chrome !== "undefined" && chrome.runtime?.id
-          ? chrome.runtime.getURL("index.html") + "?fullpage=1"
-          : window.location.origin
-        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: extensionRedirectUrl(),
+        })
         if (error) throw error
         setMessage("Password reset link sent — check your email.")
         setMode("login")
       } else if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { error } = await supabase.auth.signUp({
+          email, password,
+          options: { emailRedirectTo: extensionRedirectUrl() },
+        })
         if (error) throw error
         setMessage("Check your email for a confirmation link.")
       } else {
@@ -114,6 +122,12 @@ export default function AuthView({ onAuth, initialMode = "login" }) {
             // Show the actual error from the URL if present
             const oauthError = hashParams.get("error_description") || parsed.searchParams.get("error_description")
               || hashParams.get("error") || parsed.searchParams.get("error")
+            // Neither a token nor a code nor a labeled error came back — almost
+            // always an external config problem (Supabase's redirect-URL
+            // allowlist, or the Google Cloud OAuth client), not a JS bug. Log
+            // the full callback URL so a failed real-world test is diagnosable
+            // from the console instead of a silent guess.
+            if (!oauthError) console.error("[mirror] Google OAuth: no token/code/error in callback URL:", callbackUrl)
             setError(oauthError || "Could not retrieve session from Google.")
             setLoading(false)
           }
@@ -287,13 +301,15 @@ export default function AuthView({ onAuth, initialMode = "login" }) {
             <div style={{ flex: 1, height: 1, background: "#1e2438" }} />
           </div>
 
-          {/* Google OAuth — hidden in extension (requires different OAuth setup) */}
+          {/* Google OAuth — handleGoogle() branches on isExtension internally
+              (chrome.identity.launchWebAuthFlow vs. a normal redirect), so the
+              button itself is shown in both contexts. */}
           <button type="button" onClick={handleGoogle} disabled={loading}
             style={{ width: "100%", padding: "11px 24px", fontSize: 14, fontWeight: 500,
               cursor: loading ? "not-allowed" : "pointer",
               background: "#0e1320", color: "#d4d2e8",
               border: "1px solid #1e2438", borderRadius: 8,
-              display: isExtension ? "none" : "flex",
+              display: "flex",
               alignItems: "center", justifyContent: "center", gap: 10,
               transition: "border-color 0.15s", opacity: loading ? 0.5 : 1 }}
             onMouseEnter={e => e.currentTarget.style.borderColor = "#4a4865"}

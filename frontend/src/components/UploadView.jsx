@@ -382,7 +382,7 @@ export default function UploadView({ onResults, onActivate }) {
           </div>
           {usage.remaining === 0 && (
             <p style={{ fontSize: 12, color: "#f87171", margin: "6px 0 0" }}>
-              Limit reached — resets {usage.resets_on}
+              You've used all your free sessions.
             </p>
           )}
         </div>

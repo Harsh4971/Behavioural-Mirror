@@ -3,8 +3,14 @@
 // Records TWO independent streams per chunk:
 //   - tab audio  (chromeMediaSource:'tab')  — the other participants, as Meet plays them
 //   - mic audio  (plain getUserMedia)       — the user's own voice
-// Both recorders are cut on the same 15-minute boundary and sent to background.js
-// together once both blobs for that chunk are ready.
+// Both recorders are cut on the same chunk boundary (CHUNK_MS) and sent to
+// background.js together once both blobs for that chunk are ready.
+//
+// A single recording is capped at MAX_CHUNKS segments (currently 2 x 20min =
+// 40min total) — once the last allowed segment ends, recording stops for real
+// (via requestFullStop(), which routes through background.js's normal
+// handleStop() for a proper WebRTC-timeline flush) rather than starting
+// another segment.
 
 let tabStream = null;
 let micStream = null;
@@ -21,10 +27,14 @@ let chunkSent = false;       // guards against double-send if both onstop handle
 
 let chunkIndex = 0;
 let chunkTimer = null;
+let chunkWarnTimer = null; // fires 30s before each chunk boundary — lets the UI warn the user
+let isLastAllowedChunk = false; // set per-chunk in beginChunk() — whether this is the final segment allowed
 let playbackCtx = null; // AudioContext that routes captured audio back to speakers
 let diagnosticTimer = null; // periodic heartbeat — logs state even if no mute/unmute event ever fires
 
-const CHUNK_MS = 25 * 60 * 1000; // 25 minutes
+const CHUNK_MS = 20 * 60 * 1000; // 20 minutes
+const CHUNK_WARN_MS = 30 * 1000; // warn this long before each boundary
+const MAX_CHUNKS = 2; // hard cap — one real recording is at most 2 x 20min = 40min total, then it ends
 
 // ── Diagnostics — investigating intermittent audio dropouts during recording.
 // Pure logging, no behavior change. mute/unmute fire when the browser/OS decides
@@ -149,15 +159,25 @@ async function startRecording(streamId) {
   chunkIndex = 0;
   beginChunk();
 
-  // Every 15 minutes, cut the current chunk and start a new one
+  // Every CHUNK_MS, cut the current chunk and start a new one
   chunkTimer = setInterval(() => {
-    console.log(`[mirror-offscreen] 15-minute chunk boundary — stopping recorder(s) for chunk ${chunkIndex}`);
+    console.log(`[mirror-offscreen] chunk boundary — stopping recorder(s) for chunk ${chunkIndex}`);
     if (tabRecorder && tabRecorder.state === 'recording') tabRecorder.stop();
     if (micRecorder && micRecorder.state === 'recording') micRecorder.stop();
   }, CHUNK_MS);
+
+  // CHUNK_WARN_MS before each boundary, tell the UI so it can show a heads-up —
+  // recording itself is unaffected, this is purely a notice to the side panel.
+  // isLastAllowedChunk is read at fire-time (not capture-time) so this correctly
+  // reflects whichever chunk is actually recording when the timer goes off.
+  chunkWarnTimer = setTimeout(function scheduleWarn() {
+    chrome.runtime.sendMessage({ action: 'chunk_ending_soon', isFinal: isLastAllowedChunk });
+    if (!isLastAllowedChunk) chunkWarnTimer = setTimeout(scheduleWarn, CHUNK_MS);
+  }, CHUNK_MS - CHUNK_WARN_MS);
 }
 
 function beginChunk() {
+  isLastAllowedChunk = chunkIndex >= MAX_CHUNKS - 1;
   tabChunks = [];
   micChunks = [];
   pendingTabBlob = null;
@@ -225,10 +245,16 @@ async function maybeSendChunk() {
 
   chunkSent = true;
   const thisChunkIndex = chunkIndex;
+  const wasLastAllowedChunk = isLastAllowedChunk;
 
   if (!pendingTabBlob) {
-    // Nothing to analyze this chunk — still advance if the stream is live.
-    if (tabStream && tabStream.active && chunkTimer !== null) beginChunk();
+    // Nothing to analyze this chunk — still advance if the stream is live and
+    // we haven't hit the segment cap.
+    if (wasLastAllowedChunk) {
+      requestFullStop();
+    } else if (tabStream && tabStream.active && chunkTimer !== null) {
+      beginChunk();
+    }
     return;
   }
 
@@ -248,10 +274,30 @@ async function maybeSendChunk() {
     chunkIndex: chunkIndex++,
   });
 
-  // If stream is still live, start next chunk immediately
-  if (tabStream && tabStream.active && chunkTimer !== null) {
+  // If we've hit the segment cap, end the recording for real (with a proper
+  // WebRTC-timeline flush first, same as a manual stop) instead of starting
+  // another chunk. Otherwise, if the stream is still live, continue as before.
+  if (wasLastAllowedChunk) {
+    requestFullStop();
+  } else if (tabStream && tabStream.active && chunkTimer !== null) {
     beginChunk();
   }
+}
+
+// Called when the segment cap (MAX_CHUNKS) is reached — sends the exact same
+// 'stop_recording' message the side panel's Stop button sends, so background.js
+// runs its normal handleStop() sequence (flushes the WebRTC speaker timeline
+// BEFORE telling this document to actually stop the recorders). Deliberately
+// doesn't stop anything directly here — that round trip through background.js
+// is what guarantees the final chunk's speaker timeline is complete, not just
+// whatever's accumulated so far.
+function requestFullStop() {
+  console.log('[mirror-offscreen] Segment cap reached — requesting a full stop via background.js');
+  clearInterval(chunkTimer);
+  chunkTimer = null;
+  clearTimeout(chunkWarnTimer);
+  chunkWarnTimer = null;
+  chrome.runtime.sendMessage({ action: 'stop_recording' });
 }
 
 async function blobToBase64(blob) {
@@ -265,6 +311,8 @@ async function blobToBase64(blob) {
 function stopRecording() {
   clearInterval(chunkTimer);
   chunkTimer = null;
+  clearTimeout(chunkWarnTimer);
+  chunkWarnTimer = null;
   clearInterval(diagnosticTimer);
   diagnosticTimer = null;
 

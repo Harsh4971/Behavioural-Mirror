@@ -90,7 +90,7 @@ let webrtcMode = false;
 let speakerTimeline = []; // [{speaker, start, end}] accumulated from content script VAD events
 let webrtcAvailableTabId = null;
 
-const CHUNK_DURATION_S = 25 * 60; // 1500 seconds per chunk — must match offscreen.js's CHUNK_MS
+const CHUNK_DURATION_S = 20 * 60; // must match offscreen.js's CHUNK_MS
 
 // ── Message router ────────────────────────────────────────────────
 
@@ -394,16 +394,17 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
     return;
   }
 
-  const startMin = chunkIndex * 15;
-  const endMin = startMin + 15;
-  const filename = `meet_${startMin}-${endMin}min.webm`;
-  const micFilename = `mic_${startMin}-${endMin}min.webm`;
+  // Generic, not duration-based — a filename tied to a specific minute range
+  // (e.g. "0-15min") goes stale the moment the chunk length changes, which is
+  // exactly what happened before (chunk size moved 15→25→20, this didn't).
+  const filename = `meet_segment_${chunkIndex + 1}.webm`;
+  const micFilename = `mic_segment_${chunkIndex + 1}.webm`;
 
   console.log(`[mirror] Processing chunk ${chunkIndex} (${filename}), webrtcMode: ${webrtcMode}, hasMic: ${!!micBase64}`);
 
   // Track chunk state in local storage so popup can show progress
   await chrome.storage.local.set({
-    [`chunk_${chunkIndex}`]: { status: 'uploading', chunkIndex, startMin, endMin },
+    [`chunk_${chunkIndex}`]: { status: 'uploading', chunkIndex },
   });
 
   try {
@@ -501,7 +502,7 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
 
     // ── Done ─────────────────────────────────────────────────────
     await chrome.storage.local.set({
-      [`chunk_${chunkIndex}`]: { status: 'done', chunkIndex, startMin, endMin, sessionId: job_id },
+      [`chunk_${chunkIndex}`]: { status: 'done', chunkIndex, sessionId: job_id },
       meet_last_completed: Date.now(),
     });
 
@@ -514,7 +515,7 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
   } catch (err) {
     console.error(`[mirror] ERROR in chunk ${chunkIndex}:`, err.message);
     await chrome.storage.local.set({
-      [`chunk_${chunkIndex}`]: { status: 'error', chunkIndex, startMin, endMin, error: err.message },
+      [`chunk_${chunkIndex}`]: { status: 'error', chunkIndex, error: err.message },
     });
     chrome.action.setBadgeText({ text: '!' });
     chrome.action.setBadgeBackgroundColor({ color: '#f87171' });
@@ -523,7 +524,7 @@ async function handleChunk({ tabBase64, tabMimeType, micBase64, micMimeType, chu
 
 // ── SSE stream reader ─────────────────────────────────────────────
 
-async function readSSEStream(url, token, maxMinutes = 25) {
+async function readSSEStream(url, token, maxMinutes = 21) {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     console.error(`[mirror] ERROR: SSE stream timed out after ${maxMinutes} minutes — ${url}`);

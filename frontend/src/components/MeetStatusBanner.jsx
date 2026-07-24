@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { supabase } from "../lib/supabase"
+import api from "../lib/api"
 
 // Resolves to 'granted', 'denied', or 'dismissed'.
 // Side panels (and popups/offscreen docs) can't render the getUserMedia permission prompt —
@@ -62,8 +63,13 @@ export default function MeetStatusBanner({ onViewHistory }) {
   const [webrtcReady, setWebrtcReady] = useState(false)
   const [secondsElapsed, setSecondsElapsed] = useState(0)
   const [showConsent, setShowConsent] = useState(false)
+  const [chunkWarning, setChunkWarning] = useState(false)
+  const [chunkWarningFinal, setChunkWarningFinal] = useState(false)
+  const [usage, setUsage] = useState(null)
+  const [upgradeStatus, setUpgradeStatus] = useState("idle") // idle | sending | sent
   const timerRef = useRef(null)
-  const dismissTimers = useRef([])
+  const dismissTimers = useRef(null)
+  const chunkWarnClearRef = useRef(null)
 
   // Start/stop the elapsed timer whenever recording state changes.
   // On remount (tab switch, panel reopen), restore elapsed time from stored start timestamp
@@ -144,15 +150,29 @@ export default function MeetStatusBanner({ onViewHistory }) {
       }
     }
 
+    // offscreen.js sends this ~30s before each chunk boundary. isFinal tells us
+    // whether recording continues into a new segment (as it does today, up to
+    // the segment cap) or is about to end for good (the last allowed segment).
+    function onRuntimeMessage(msg) {
+      if (msg.action !== 'chunk_ending_soon') return
+      setChunkWarning(true)
+      setChunkWarningFinal(!!msg.isFinal)
+      clearTimeout(chunkWarnClearRef.current)
+      chunkWarnClearRef.current = setTimeout(() => setChunkWarning(false), 30000)
+    }
+
     refresh()
     checkTab()
     chrome.storage.onChanged.addListener(onStorageChanged)
+    chrome.runtime.onMessage.addListener(onRuntimeMessage)
     const ri = setInterval(refresh, 3000)
     const ti = setInterval(checkTab, 2000)
     return () => {
       clearInterval(ri)
       clearInterval(ti)
       chrome.storage.onChanged.removeListener(onStorageChanged)
+      chrome.runtime.onMessage.removeListener(onRuntimeMessage)
+      clearTimeout(chunkWarnClearRef.current)
     }
   }, [])
 
@@ -229,6 +249,44 @@ export default function MeetStatusBanner({ onViewHistory }) {
   const errors = chunks.filter(c => c.status === "error")
   const done = chunks.filter(c => c.status === "done")
 
+  // "Segment ready — view in history" auto-dismisses on its own after 20s so
+  // it doesn't linger; the in-progress "Analysing…" banner above is left
+  // alone since it should stay for as long as it's actually true.
+  useEffect(() => {
+    if (done.length > 0 && !recording && active.length === 0) {
+      dismissTimers.current = setTimeout(() => clearAll(), 20000)
+      return () => clearTimeout(dismissTimers.current)
+    }
+  }, [done.length, recording, active.length])
+
+  // Free-session usage — fetched once on mount so hitting the cap is caught
+  // *before* someone tries to record (not discovered only after a wasted
+  // recording fails to upload). Also restores "already expressed interest"
+  // from a per-account localStorage flag, so re-opening the panel doesn't
+  // let someone re-click Upgrade and send a duplicate email every time.
+  useEffect(() => {
+    api.get("/api/usage").then(res => setUsage(res.data)).catch(() => {})
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id && localStorage.getItem(`mirror_upgrade_interest_${session.user.id}`)) {
+        setUpgradeStatus("sent")
+      }
+    }).catch(() => {})
+  }, [])
+
+  async function handleUpgradeClick() {
+    setUpgradeStatus("sending")
+    try {
+      await api.post("/api/upgrade-interest")
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user?.id) {
+        localStorage.setItem(`mirror_upgrade_interest_${session.user.id}`, "1")
+      }
+      setUpgradeStatus("sent")
+    } catch {
+      setUpgradeStatus("idle")
+    }
+  }
+
   const showBanner = onMeet || recording || active.length > 0 || errors.length > 0 || done.length > 0
   if (!showBanner) return null
 
@@ -293,8 +351,38 @@ export default function MeetStatusBanner({ onViewHistory }) {
         </div>
       )}
 
+      {/* Free-session cap reached — shown instead of recording controls, before
+          anyone wastes a real recording only to have the upload get rejected. */}
+      {onMeet && !recording && usage && usage.remaining <= 0 && (
+        <div style={{
+          background: "rgba(29,78,216,0.06)", border: "1px solid rgba(29,78,216,0.25)",
+          borderRadius: 12, padding: "14px 16px", marginBottom: 8,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#f0eeff", marginBottom: 4 }}>
+            You've used all {usage.limit} free sessions
+          </div>
+          <div style={{ fontSize: 12, color: "#8b89aa", lineHeight: 1.6, marginBottom: 10 }}>
+            Upgrade to keep recording — ₹69/month.
+          </div>
+          {upgradeStatus === "sent" ? (
+            <div style={{ fontSize: 12, color: "#5b9cf6", fontWeight: 500 }}>
+              Thanks! This is coming soon — we'll email you the moment it's ready.
+            </div>
+          ) : (
+            <button onClick={handleUpgradeClick} disabled={upgradeStatus === "sending"} style={{
+              background: "linear-gradient(90deg, #1d4ed8, #0891b2)", border: "none",
+              borderRadius: 8, padding: "8px 18px", color: "#fff", fontSize: 13, fontWeight: 600,
+              cursor: upgradeStatus === "sending" ? "default" : "pointer",
+              opacity: upgradeStatus === "sending" ? 0.6 : 1,
+            }}>
+              {upgradeStatus === "sending" ? "…" : "Upgrade — ₹69/month"}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Meet recording controls */}
-      {onMeet && (
+      {onMeet && !(usage && usage.remaining <= 0 && !recording) && (
         <div style={{
           background: "rgba(13,15,20,0.6)", border: "1px solid #1e2438",
           borderRadius: 12, padding: "14px 16px", marginBottom: 8,
@@ -352,6 +440,24 @@ export default function MeetStatusBanner({ onViewHistory }) {
 
       <style>{`@keyframes mirrorBannerPulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
 
+      {/* 30s heads-up before a chunk boundary. Two distinct messages: mid-recording
+          continues into a new segment automatically (not a stop/pause); the last
+          allowed segment ends recording for real once the cap (40 min total) is hit. */}
+      {chunkWarning && recording && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.2)",
+          borderRadius: 10, padding: "10px 14px", marginBottom: 8,
+        }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>⏱</span>
+          <div style={{ fontSize: 12, color: "#fbbf24", fontWeight: 500 }}>
+            {chunkWarningFinal
+              ? "Recording will end automatically in 30s — you've reached the 40-minute limit"
+              : "Wrapping up this segment — recording continues automatically"}
+          </div>
+        </div>
+      )}
+
       {/* Chunks being analysed */}
       {active.map((c, i) => (
         <div key={i} style={{
@@ -362,7 +468,7 @@ export default function MeetStatusBanner({ onViewHistory }) {
           <Spinner />
           <div>
             <div style={{ fontSize: 12, color: "#a5b4fc", fontWeight: 500 }}>
-              Analysing minutes {c.startMin}–{c.endMin}…
+              Analysing segment {(c.chunkIndex ?? 0) + 1}…
             </div>
             <div style={{ fontSize: 11, color: "#4a4d6a", marginTop: 2 }}>
               Transcribing and generating insights
@@ -381,7 +487,7 @@ export default function MeetStatusBanner({ onViewHistory }) {
           <span style={{ fontSize: 16, lineHeight: 1 }}>⚠</span>
           <div>
             <div style={{ fontSize: 12, color: "#f87171", fontWeight: 500 }}>
-              Analysis failed — minutes {c.startMin}–{c.endMin}
+              Analysis failed — segment {(c.chunkIndex ?? 0) + 1}
             </div>
             <div style={{ fontSize: 11, color: "#4a4d6a", marginTop: 2 }}>
               {c.error || "Unknown error"}
