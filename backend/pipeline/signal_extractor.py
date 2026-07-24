@@ -156,9 +156,15 @@ class SignalExtractor:
         return signals
 
     def _get_session_duration(self) -> float:
+        """Span from the first real speech to the last — not from recording-start
+        (t=0), so leading/trailing dead air (waiting for the call to begin, people
+        trailing off at the end) doesn't inflate silence_ratio/crosstalk_ratio or
+        get reported as the session's length. Real conversational silence *within*
+        the session (the gaps _compute_silence_ratio actually cares about) is
+        untouched — this only trims silence outside the first/last utterance."""
         if not self.segments:
             return 0.0
-        return round(self.segments[-1]["end"], 2)
+        return round(self.segments[-1]["end"] - self.segments[0]["start"], 2)
 
     def _compute_talk_ratio(self, user_segs, other_segs) -> dict:
         user_time = sum(s["end"] - s["start"] for s in user_segs)

@@ -621,25 +621,66 @@ def privacy_policy():
 
 # ── Usage ─────────────────────────────────────────────────────────
 
-@app.get("/api/usage")
-async def get_usage(user_id: str = Depends(get_current_user)):
-    from datetime import timedelta
-    limit = 15
-    now = datetime.now(timezone.utc)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    next_month = (month_start + timedelta(days=32)).replace(day=1)
+_FREE_SESSION_LIMIT = 7  # lifetime, not monthly — free tier is a one-time trial pool
+
+
+def _get_lifetime_session_count(user_id: str) -> int:
     res = supabase_admin.table("sessions") \
         .select("id", count="exact") \
         .eq("user_id", user_id) \
-        .gte("created_at", month_start.isoformat()) \
         .execute()
-    used = res.count or 0
+    return res.count or 0
+
+
+@app.get("/api/usage")
+async def get_usage(user_id: str = Depends(get_current_user)):
+    used = _get_lifetime_session_count(user_id)
     return {
         "used": used,
-        "limit": limit,
-        "remaining": max(0, limit - used),
-        "resets_on": next_month.strftime("%b 1"),
+        "limit": _FREE_SESSION_LIMIT,
+        "remaining": max(0, _FREE_SESSION_LIMIT - used),
     }
+
+
+@app.post("/api/upgrade-interest")
+async def submit_upgrade_interest(user_id: str = Depends(get_current_user)):
+    """Fake-door demand signal — no real payment, no Stripe. Records that this
+    user clicked "Upgrade" after hitting the free-session cap, so real pricing/
+    volume decisions can be made from actual interest rather than a guess."""
+    user_data = supabase_admin.auth.admin.get_user_by_id(user_id)
+    user_email = getattr(user_data.user, "email", "unknown")
+
+    supabase_admin.table("upgrade_interest").insert({
+        "user_id": user_id,
+        "email": user_email,
+    }).execute()
+
+    resend_key = os.getenv("RESEND_API_KEY")
+    if resend_key:
+        try:
+            import resend
+            resend.api_key = resend_key
+            resend.Emails.send({
+                "from": "Mirror Feedback <feedback@mirrorai.live>",
+                "to": ["harsh200415@gmail.com"],
+                "subject": "Mirror — Upgrade interest!",
+                "html": f"""
+                <div style="font-family:system-ui,sans-serif;max-width:560px;color:#111;">
+                  <h2 style="margin:0 0 4px;">Someone clicked Upgrade</h2>
+                  <p style="color:#888;font-size:13px;margin:0 0 20px;">
+                    {user_email} &nbsp;·&nbsp; {_utcnow()}
+                  </p>
+                  <p style="font-size:15px;line-height:1.6;">
+                    They hit the {_FREE_SESSION_LIMIT}-session free limit and clicked
+                    "Upgrade — ₹69/month" on the coming-soon prompt.
+                  </p>
+                </div>
+                """,
+            })
+        except Exception as e:
+            logger.warning(f"Upgrade-interest email failed: {e}")
+
+    return {"status": "recorded"}
 
 
 # ── SSE Step 1: Start prepare job ────────────────────────────────
@@ -654,20 +695,11 @@ async def start_prepare_session(
 ):
     _cleanup_stale_cache()
 
-    # ── Monthly session cap ───────────────────────────────────────────
-    _SESSION_MONTHLY_LIMIT = 15
-    _month_start = datetime.now(timezone.utc).replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0
-    ).isoformat()
-    _usage_res = supabase_admin.table("sessions") \
-        .select("id", count="exact") \
-        .eq("user_id", user_id) \
-        .gte("created_at", _month_start) \
-        .execute()
-    if (_usage_res.count or 0) >= _SESSION_MONTHLY_LIMIT:
+    # ── Free session cap — lifetime, not monthly (see _FREE_SESSION_LIMIT) ────
+    if _get_lifetime_session_count(user_id) >= _FREE_SESSION_LIMIT:
         raise HTTPException(
             status_code=429,
-            detail=f"You've used all {_SESSION_MONTHLY_LIMIT} sessions for this month. Your limit resets on the 1st."
+            detail=f"You've used all {_FREE_SESSION_LIMIT} free sessions."
         )
 
     session_id = str(uuid.uuid4())
