@@ -186,6 +186,32 @@ function DimensionEventCard({ card, faded, onDismiss }) {
   )
 }
 
+// A real DimensionEventCard rendered with fabricated content, shown only in
+// the empty state so a brand-new user sees what their feed becomes instead
+// of just reading about it. `onDismiss` is a no-op — there's no real card
+// behind this to persist a dismissal for.
+function ExampleCard() {
+  const sampleCard = {
+    label: "Curiosity",
+    trigger_type: "first_time_steady",
+    direction: null,
+    note: "You asked more follow-up questions than usual across your last two calls — steady enough now to call it a pattern.",
+  }
+  return (
+    <div style={{ position: "relative" }}>
+      <span style={{
+        position: "absolute", top: -9, left: 14, zIndex: 1,
+        fontSize: 9.5, fontWeight: 700, letterSpacing: 1,
+        textTransform: "uppercase", color: "#0d0f16",
+        background: "#8b89aa", borderRadius: 20, padding: "2px 8px",
+      }}>
+        Example
+      </span>
+      <DimensionEventCard card={sampleCard} faded={false} onDismiss={() => {}} />
+    </div>
+  )
+}
+
 function HomeCard({ card, i, faded, onDismiss, onOpenSession }) {
   const dismiss = () => onDismiss(card.card_key)
   return (
@@ -232,13 +258,28 @@ export default function HomeView({ active, onOpenSession }) {
 
   if (!data || data.insufficient_data) {
     return (
-      <div style={{ textAlign: "center", padding: "60px 20px" }}>
+      <div style={{ textAlign: "center", padding: "60px 20px 20px" }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px", color: "#f0eeff" }}>
           Your mirror is waiting
         </h2>
-        <p style={{ fontSize: 14, color: "#8b89aa", margin: 0, lineHeight: 1.6 }}>
+        <p style={{ fontSize: 14, color: "#8b89aa", margin: "0 0 24px", lineHeight: 1.6 }}>
           Record your first Google Meet call to start building your feed.
         </p>
+        <a href="https://meet.google.com/" target="_blank" rel="noreferrer"
+          style={{ display: "inline-block", padding: "12px 28px", background: G,
+            color: "white", border: "none", borderRadius: 8, fontSize: 14,
+            fontWeight: 600, textDecoration: "none",
+            boxShadow: "0 0 24px rgba(29,78,216,0.25)" }}>
+          Open Google Meet →
+        </a>
+
+        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2,
+          textTransform: "uppercase", color: "#4a4865", margin: "48px 0 12px" }}>
+          What a card looks like
+        </p>
+        <div style={{ textAlign: "left", maxWidth: 420, margin: "0 auto" }}>
+          <ExampleCard />
+        </div>
       </div>
     )
   }

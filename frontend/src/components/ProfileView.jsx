@@ -557,6 +557,32 @@ export default function ProfileView({ active }) {
         <p style={{ fontSize: 14, color: "#8b89aa", margin: "0 0 24px", lineHeight: 1.6 }}>
           Record your first Google Meet call to start building your profile.
         </p>
+        <a href="https://meet.google.com/" target="_blank" rel="noreferrer"
+          style={{ display: "inline-block", padding: "12px 28px", background: G,
+            color: "white", border: "none", borderRadius: 8, fontSize: 14,
+            fontWeight: 600, textDecoration: "none",
+            boxShadow: "0 0 24px rgba(29,78,216,0.25)" }}>
+          Open Google Meet →
+        </a>
+
+        <div style={{ maxWidth: 320, margin: "48px auto 0", textAlign: "left" }}>
+          <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2,
+            textTransform: "uppercase", color: "#4a4865", margin: "0 0 12px" }}>
+            What you'll see here
+          </p>
+          {[
+            "Patterns steady enough to call your own — hedging, directness, how you build on others",
+            "How you shift across different kinds of calls",
+            "Growth areas, framed as possibility, not a grade",
+          ].map(line => (
+            <div key={line} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+              <span style={{ color: "#1d4ed8", flexShrink: 0 }}>·</span>
+              <p style={{ margin: 0, fontSize: 13, color: "#8b89aa", lineHeight: 1.55 }}>
+                {line}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
